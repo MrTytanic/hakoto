@@ -103,6 +103,32 @@
   gap: 8px;
 }
 
+/* Circular avatar */
+.settings-avatar-preview {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 68px;
+  height: 68px;
+  min-width: 68px;
+  min-height: 68px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid #3f3f46;
+  border-radius: 50%;
+  background: #29292e;
+  color: #a1a1aa;
+}
+
+.settings-avatar-preview img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  border-radius: 50%;
+}
+
 .settings-upload,
 .settings-remove {
   display: inline-flex;
