@@ -1,8 +1,12 @@
-function Favorites() {
+import ProfileHeader from "../components/ProfileHeader";
+import type { Profile } from "../types/Profile";
+import "./Favorites.css";
+
+function Favorites({ profile }: { profile: Profile }) {
   return (
-    <>
-      <h1>Favorites</h1>
-    </>
+    <div className="favorites-page">
+      <ProfileHeader profile={profile} title="Favorites" />
+    </div>
   );
 }
 

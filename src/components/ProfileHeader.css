@@ -1,0 +1,37 @@
+.profile-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.profile-header .profile-header-text h1 {
+  margin: 0;
+  font-size: 28px;
+  color: #f4f4f5;
+  overflow-wrap: anywhere;
+}
+
+.profile-avatar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 52px;
+  height: 52px;
+  flex-shrink: 0;
+  overflow: hidden;
+  border: 1px solid #3f3f46;
+  border-radius: 50%;
+  background: #29292e;
+  color: #a1a1aa;
+}
+
+.profile-avatar-preview {
+  width: 68px;
+  height: 68px;
+}
+
+.profile-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}

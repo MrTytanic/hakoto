@@ -1,8 +1,12 @@
-function Wishlist() {
+import ProfileHeader from "../components/ProfileHeader";
+import type { Profile } from "../types/Profile";
+import "./Wishlist.css";
+
+function Wishlist({ profile }: { profile: Profile }) {
   return (
-    <>
-      <h1>Wishlist</h1>
-    </>
+    <div className="wishlist-page">
+      <ProfileHeader profile={profile} title="Wishlist" />
+    </div>
   );
 }
 

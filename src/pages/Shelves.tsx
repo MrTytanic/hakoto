@@ -1,8 +1,12 @@
-function Shelves() {
+import ProfileHeader from "../components/ProfileHeader";
+import type { Profile } from "../types/Profile";
+import "./Shelves.css";
+
+function Shelves({ profile }: { profile: Profile }) {
   return (
-    <>
-      <h1>Shelves</h1>
-    </>
+    <div className="shelves-page">
+      <ProfileHeader profile={profile} title="Shelves" />
+    </div>
   );
 }
 

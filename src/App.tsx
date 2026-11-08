@@ -1,7 +1,9 @@
-import { useState } from "react";
-import "./App.css";
-import Sidebar from "./components/sidebar/Sidebar";
 
+import { useEffect, useState } from "react";
+import type { Profile } from "./types/Profile";
+import "./App.css";
+
+import Sidebar from "./components/sidebar/Sidebar";
 import Collection from "./pages/Collection";
 import Shelves from "./pages/Shelves";
 import Favorites from "./pages/Favorites";
@@ -13,14 +15,26 @@ import Settings from "./pages/Settings";
 function App() {
   const [activePage, setActivePage] = useState("Collection");
 
+  const [profile, setProfile] = useState<Profile>({
+    displayName: "",
+    profilePicture: null
+  });
+
+  // Release temporary image URLs when the picture changes or App unmounts.
+  useEffect(() => {
+    return () => {
+      if (profile.profilePicture) URL.revokeObjectURL(profile.profilePicture);
+    };
+  }, [profile.profilePicture]);
+
   const pages: Record<string, React.ReactNode> = {
-    "Collection": <Collection />,
-    "Shelves": <Shelves />,
-    "Favorites": <Favorites />,
-    "Lists": <Lists />,
-    "Wishlist": <Wishlist />,
-    "Statistics": <Statistics />,
-    "Settings": <Settings />
+    Collection: <Collection profile={profile} />,
+    Shelves: <Shelves profile={profile} />,
+    Favorites: <Favorites profile={profile} />,
+    Wishlist: <Wishlist profile={profile} />,
+    Lists: <Lists profile={profile} />,
+    Statistics: <Statistics profile={profile} />,
+    Settings: <Settings profile={profile} setProfile={setProfile} />
   };
 
   return (

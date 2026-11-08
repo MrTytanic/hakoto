@@ -1,8 +1,12 @@
-function Lists() {
+import ProfileHeader from "../components/ProfileHeader";
+import type { Profile } from "../types/Profile";
+import "./Lists.css";
+
+function Lists({ profile }: { profile: Profile }) {
   return (
-    <>
-      <h1>Lists</h1>
-    </>
+    <div className="lists-page">
+      <ProfileHeader profile={profile} title="Lists" />
+    </div>
   );
 }
 

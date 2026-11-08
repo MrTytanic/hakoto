@@ -1,0 +1,161 @@
+
+/* Page */
+.settings-page {
+  width: 100%;
+  max-width: 900px;
+}
+
+.settings-header {
+  padding-bottom: 20px;
+  margin-bottom: 24px;
+  border-bottom: 1px solid #303034;
+}
+
+.settings-header .profile-header h1 {
+  margin: 0 0 6px;
+  font-weight: 650;
+}
+
+.settings-header p,
+.settings-section-heading p,
+.settings-field p {
+  margin: 0;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.settings-section-heading h2 {
+  margin: 0 0 6px;
+  font-size: 17px;
+  font-weight: 600;
+  color: #e8e8ed;
+}
+
+/* Card & fields */
+.settings-card {
+  padding: 20px;
+  border: 1px solid #303034;
+  border-radius: 10px;
+  background: #1c1c1f;
+}
+
+.settings-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.settings-field > label {
+  color: #e8e8ed;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.settings-field p {
+  margin: 6px 0 14px;
+}
+
+.settings-field input[type="text"] {
+  width: 100%;
+  max-width: 320px;
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  outline: none;
+  background: #141416;
+  color: #f4f4f5;
+  font: inherit;
+  font-size: 14px;
+  transition: border-color .2s;
+}
+
+.settings-field input[type="text"]::placeholder {
+  color: #71717a;
+}
+
+.settings-field input[type="text"]:focus {
+  border-color: #818cf8;
+}
+
+/* Profile picture */
+.settings-avatar-field {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #303034;
+}
+
+.settings-avatar-row,
+.settings-avatar-controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.settings-avatar-controls {
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.settings-upload,
+.settings-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  background: #29292e;
+  color: #e8e8ed;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background .2s;
+}
+
+.settings-upload:hover,
+.settings-remove:hover {
+  background: #38383e;
+}
+
+.settings-upload:focus-within,
+.settings-remove:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 3px;
+}
+
+.settings-remove {
+  color: #fca5a5;
+}
+
+.settings-file-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  overflow: hidden;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+  .settings-card {
+    padding: 16px;
+  }
+
+  .settings-field input[type="text"] {
+    max-width: none;
+  }
+
+  .settings-avatar-row {
+    align-items: flex-start;
+  }
+}
