@@ -8,16 +8,20 @@ import "./Sidebar.css";
 
 const navigation = [
   { label: "Collection", icon: Library },
-  { label: "Shelf Mode", icon: Layers3 },
+  { label: "Shelves", icon: Layers3 },
   { label: "Favorites", icon: Heart },
-  { label: "Wishlist", icon: Bookmark },
   { label: "Lists", icon: ListMusic },
+  { label: "Wishlist", icon: Bookmark },
   { label: "Statistics", icon: ChartNoAxesColumn }
 ];
 
-function Sidebar() {
+type SidebarProps = {
+  activePage: string;
+  setActivePage: (page: string) => void;
+};
+
+function Sidebar({ activePage, setActivePage }: SidebarProps) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const [activePage, setActivePage] = useState("Collection");
 
   const toggleSidebar = () => setIsExpanded(prev => !prev);
 
