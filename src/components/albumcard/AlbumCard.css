@@ -1,0 +1,71 @@
+.album-card {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.album-card .album-artwork {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #29292e;
+  color: #71717a;
+  transition: opacity .2s;
+}
+
+.album-card:hover .album-artwork {
+  opacity: .8;
+}
+
+.album-card:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 4px;
+  border-radius: 8px;
+}
+
+.album-card .album-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.album-card h3 {
+  margin: 10px 0 4px;
+  overflow: hidden;
+  color: #f4f4f5;
+  font-size: 14px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-card p {
+  margin: 0 0 5px;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.album-card span {
+  color: #71717a;
+  font-size: 12px;
+}
+
+.album-card .album-favorite-indicator {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  color: #fca5a5;
+  filter: drop-shadow(0 1px 3px #141416);
+}

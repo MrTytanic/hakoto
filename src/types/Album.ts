@@ -5,4 +5,5 @@ export type Album = {
   format: string;
   releaseYear: string;
   artwork: string | null;
+  favorite: boolean;
 };

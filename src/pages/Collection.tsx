@@ -1,28 +1,31 @@
-import { useState, type ChangeEvent, type FormEvent } from "react";
-import { Plus, Disc3, X, ImagePlus } from "lucide-react";
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { Plus, Disc3, X, ImagePlus, UserRound } from "lucide-react";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
+import { albumFormats } from "../constants/albumFormats";
+import AlbumCard from "../components/albumcard/AlbumCard";
+import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import "./Collection.css";
 
-const formats = [
-  "CD",
-  "Vinyl (12-inch LP)",
-  "Vinyl (10-inch)",
-  "Vinyl (7-inch / Single)",
-  "Cassette",
-  "8-Track Cartridge",
-  "MiniDisc",
-  "SACD",
-  "DVD-Audio",
-  "Reel-to-Reel",
-  "Flexi Disc",
-  "Shellac (78 RPM)",
-  "Other"
-];
+type CollectionProps = {
+  profile: Profile;
+  albums: Album[];
+  onAdd: (album: Album) => void;
+  onUpdate: (album: Album) => void;
+  onDelete: (id: string) => void;
+  onNotify?: (message: string, type: "success" | "error") => void;
+};
 
-function Collection({ profile }: { profile: Profile }) {
-  const [albums, setAlbums] = useState<Album[]>([]);
+function Collection({
+  profile,
+  albums,
+  onAdd,
+  onUpdate,
+  onDelete,
+  onNotify
+}: CollectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
@@ -30,25 +33,59 @@ function Collection({ profile }: { profile: Profile }) {
   const [releaseYear, setReleaseYear] = useState("");
   const [artwork, setArtwork] = useState<string | null>(null);
 
+  // Tracks temporary artwork owned by the Add Album form.
+  const ownedArtwork = useRef<string | null>(null);
+
+  const selectedAlbum = albums.find(album => album.id === selectedId);
+
+  // Clean up abandoned artwork when Collection unmounts.
+  useEffect(() => {
+    return () => {
+      if (ownedArtwork.current) {
+        URL.revokeObjectURL(ownedArtwork.current);
+      }
+    };
+  }, []);
+
+  function notify(message: string, type: "success" | "error" = "error") {
+    onNotify?.(message, type);
+  }
+
   function handleArtwork(e: ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    e.target.value = "";
+
     if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-      alert("Please select a PNG, JPG, or WebP image.");
+      notify("Please select a PNG, JPG, or WebP image.");
       return;
     }
 
     if (file.size > 5 * 1024 * 1024) {
-      alert("Artwork must be smaller than 5 MB.");
+      notify("Artwork must be smaller than 5 MB.");
       return;
     }
 
-    setArtwork(URL.createObjectURL(file));
-    e.target.value = "";
+    // Remove the previous unsaved preview, if any.
+    if (ownedArtwork.current) {
+      URL.revokeObjectURL(ownedArtwork.current);
+    }
+
+    const url = URL.createObjectURL(file);
+
+    ownedArtwork.current = url;
+    setArtwork(url);
   }
 
   function resetForm() {
+    // Only revoke artwork still owned by this form.
+    if (ownedArtwork.current) {
+      URL.revokeObjectURL(ownedArtwork.current);
+    }
+
+    ownedArtwork.current = null;
+
     setTitle("");
     setArtist("");
     setFormat("CD");
@@ -56,8 +93,14 @@ function Collection({ profile }: { profile: Profile }) {
     setArtwork(null);
   }
 
+  function closeAddModal() {
+    setIsModalOpen(false);
+    resetForm();
+  }
+
   function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
     if (!title.trim() || !artist.trim()) return;
 
     const album: Album = {
@@ -66,12 +109,20 @@ function Collection({ profile }: { profile: Profile }) {
       artist: artist.trim(),
       format,
       releaseYear,
-      artwork
+      artwork,
+      favorite: false
     };
 
-    setAlbums(prev => [...prev, album]);
+    onAdd(album);
+
+    // Transfer artwork ownership to the collection.
+    // This prevents resetForm() from deleting the album's image.
+    ownedArtwork.current = null;
+
     resetForm();
     setIsModalOpen(false);
+
+    notify(`"${album.title}" added to your collection.`, "success");
   }
 
   return (
@@ -79,9 +130,11 @@ function Collection({ profile }: { profile: Profile }) {
       <div className="collection-top">
         <div className="collection-header">
           <div className="collection-avatar">
-            {profile.profilePicture
-              ? <img src={profile.profilePicture} alt="Profile" />
-              : <Disc3 size={26} strokeWidth={1.5} />}
+            {profile.profilePicture ? (
+              <img src={profile.profilePicture} alt="Profile" />
+            ) : (
+              <UserRound size={26} strokeWidth={1.5} />
+            )}
           </div>
 
           <h1>
@@ -92,6 +145,7 @@ function Collection({ profile }: { profile: Profile }) {
         </div>
 
         <button
+          type="button"
           className="collection-add"
           onClick={() => setIsModalOpen(true)}
         >
@@ -105,44 +159,54 @@ function Collection({ profile }: { profile: Profile }) {
           <Disc3 size={42} strokeWidth={1.2} />
           <h2>Your collection is empty</h2>
           <p>Start building your music collection by adding your first album.</p>
-          <button onClick={() => setIsModalOpen(true)}>
-            <Plus size={16} /> Add Your First Album
+
+          <button type="button" onClick={() => setIsModalOpen(true)}>
+            <Plus size={16} />
+            Add Your First Album
           </button>
         </div>
       ) : (
         <div className="album-grid">
           {albums.map(album => (
-            <div className="album-card" key={album.id}>
-              <div className="album-artwork">
-                {album.artwork
-                  ? <img src={album.artwork} alt={`${album.title} cover`} />
-                  : <Disc3 size={40} strokeWidth={1.2} />}
-              </div>
-
-              <h3>{album.title}</h3>
-              <p>{album.artist}</p>
-              <span>{album.format}</span>
-            </div>
+            <AlbumCard
+              key={album.id}
+              album={album}
+              onClick={() => setSelectedId(album.id)}
+            />
           ))}
         </div>
+      )}
+
+      {selectedAlbum && (
+        <AlbumDetails
+          key={selectedAlbum.id}
+          album={selectedAlbum}
+          onUpdate={onUpdate}
+          onDelete={onDelete}
+          onClose={() => setSelectedId(null)}
+        />
       )}
 
       {isModalOpen && (
         <div
           className="album-modal-overlay"
           onMouseDown={e => {
-            if (e.target === e.currentTarget) {
-              setIsModalOpen(false);
-            }
+            if (e.target === e.currentTarget) closeAddModal();
           }}
         >
-          <div className="album-modal" role="dialog" aria-modal="true" aria-labelledby="add-album-title">
+          <div
+            className="album-modal"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-album-title"
+          >
             <div className="album-modal-header">
               <h2 id="add-album-title">Add Album</h2>
+
               <button
                 type="button"
                 aria-label="Close"
-                onClick={() => setIsModalOpen(false)}
+                onClick={closeAddModal}
               >
                 <X size={20} />
               </button>
@@ -177,8 +241,10 @@ function Collection({ profile }: { profile: Profile }) {
                     value={format}
                     onChange={e => setFormat(e.target.value)}
                   >
-                    {formats.map(item => (
-                      <option key={item} value={item}>{item}</option>
+                    {albumFormats.map(item => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
                     ))}
                   </select>
                 </div>
@@ -198,7 +264,11 @@ function Collection({ profile }: { profile: Profile }) {
 
               <div className="album-form-field">
                 <label htmlFor="album-artwork">Album Artwork</label>
-                <label className="album-artwork-upload" htmlFor="album-artwork">
+
+                <label
+                  className="album-artwork-upload"
+                  htmlFor="album-artwork"
+                >
                   {artwork ? (
                     <img src={artwork} alt="Artwork preview" />
                   ) : (
@@ -223,7 +293,7 @@ function Collection({ profile }: { profile: Profile }) {
                 <button
                   type="button"
                   className="album-cancel"
-                  onClick={() => setIsModalOpen(false)}
+                  onClick={closeAddModal}
                 >
                   Cancel
                 </button>

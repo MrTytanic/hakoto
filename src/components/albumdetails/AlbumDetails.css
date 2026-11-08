@@ -1,0 +1,259 @@
+.details-overlay {
+  position: fixed;
+  z-index: 1100;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, .7);
+}
+
+.details-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+  border: 1px solid #3f3f46;
+  border-radius: 12px;
+  background: #1c1c1f;
+  color: #f4f4f5;
+}
+
+.details-header,
+.details-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.details-header {
+  margin-bottom: 24px;
+}
+
+.details-header h2 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.details-header > button {
+  padding: 5px;
+  border: none;
+  background: transparent;
+  color: #a1a1aa;
+  cursor: pointer;
+}
+
+.details-content {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.details-artwork {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 180px;
+  aspect-ratio: 1;
+  flex-shrink: 0;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #29292e;
+  color: #71717a;
+}
+
+.details-artwork img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.details-information {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.details-information h3 {
+  margin: 0;
+  font-size: 21px;
+  overflow-wrap: anywhere;
+}
+
+.details-information p {
+  margin: 0 0 8px;
+  color: #a1a1aa;
+  font-size: 14px;
+}
+
+.details-information span {
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
+.details-actions {
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin-top: 24px;
+}
+
+.details-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 36px;
+  padding: 0 12px;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  background: #29292e;
+  color: #e8e8ed;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.details-actions button:hover {
+  background: #38383e;
+}
+
+.details-actions .details-delete {
+  color: #fca5a5;
+}
+
+.details-actions .details-primary {
+  border-color: #e8e8ed;
+  background: #e8e8ed;
+  color: #141416;
+}
+
+.details-form {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+}
+
+.details-form label {
+  color: #e8e8ed;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.details-form input,
+.details-form select {
+  width: 100%;
+  height: 40px;
+  margin-bottom: 10px;
+  padding: 0 12px;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  background: #141416;
+  color: #f4f4f5;
+  font: inherit;
+  font-size: 13px;
+}
+
+@media (max-width: 500px) {
+  .details-content {
+    flex-direction: column;
+  }
+
+  .details-artwork {
+    width: 100%;
+    max-width: 220px;
+  }
+}
+
+
+/* Delete confirmation */
+
+.delete-confirmation-overlay {
+  position: fixed;
+  z-index: 1200;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.75);
+}
+
+.delete-confirmation {
+  width: 100%;
+  max-width: 400px;
+  padding: 26px;
+  border: 1px solid #3f3f46;
+  border-radius: 12px;
+  background: #1c1c1f;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
+  text-align: center;
+}
+
+.delete-confirmation-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  margin: 0 auto 16px;
+  border-radius: 50%;
+  background: rgba(248, 113, 113, 0.1);
+  color: #fca5a5;
+}
+
+.delete-confirmation h3 {
+  margin: 0 0 10px;
+  color: #f4f4f5;
+  font-size: 19px;
+  font-weight: 600;
+}
+
+.delete-confirmation p {
+  margin: 0;
+  color: #a1a1aa;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.delete-confirmation p strong {
+  color: #e8e8ed;
+}
+
+.delete-confirmation-actions {
+  display: flex;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.delete-confirmation-actions button {
+  min-height: 38px;
+  padding: 0 16px;
+  border: 1px solid #3f3f46;
+  border-radius: 7px;
+  background: #29292e;
+  color: #e8e8ed;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.delete-confirmation-actions button:hover {
+  background: #38383e;
+}
+
+.delete-confirmation-actions .delete-confirm-button {
+  border-color: #dc2626;
+  background: #dc2626;
+  color: #ffffff;
+}
+
+.delete-confirmation-actions .delete-confirm-button:hover {
+  background: #b91c1c;
+}
