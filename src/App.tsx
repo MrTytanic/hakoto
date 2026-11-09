@@ -122,14 +122,36 @@ function App() {
     setAlbums(prev => [...prev, album]);
   }
 
-  function updateAlbum(updated: Album) {
+ async function updateAlbum(updated: Album) {
+  console.log("Updating album:", updated);
+    const affectedRows = await invoke<number>("update_album", {
+      id: updated.id,
+      title: updated.title,
+      artist: updated.artist,
+      format: updated.format,
+      releaseYear: updated.releaseYear,
+      artwork: null,
+      favorite: updated.favorite,
+    });
+
+    if (affectedRows === 0) {
+      throw new Error("Album not found in database.");
+    }
+
     setAlbums(prev =>
       prev.map(album => album.id === updated.id ? updated : album)
     );
   }
 
-  function deleteAlbum(id: string) {
-    const album = albums.find(item => item.id === id);
+  async function deleteAlbum(id: string) {
+  const album = albums.find(item => item.id === id);
+
+  try {
+    const affectedRows = await invoke<number>("delete_album", { id });
+
+    if (affectedRows === 0) {
+      throw new Error("Album not found in database.");
+    }
 
     setAlbums(prev => prev.filter(item => item.id !== id));
 
@@ -140,7 +162,12 @@ function App() {
     if (album) {
       notify(`"${album.title}" removed from your collection.`, "success");
     }
+  } catch (error) {
+    console.error("Failed to delete album:", error);
+    notify("Failed to delete album. Please try again.", "error");
+    throw error;
   }
+}
 
   const pages: Record<string, React.ReactNode> = {
     Collection: (

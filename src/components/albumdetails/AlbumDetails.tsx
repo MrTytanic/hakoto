@@ -1,5 +1,5 @@
 
-import { useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { Disc3, Heart, Pencil, Trash2, X } from "lucide-react";
 import type { Album } from "../../types/Album";
 import { albumFormats } from "../../constants/albumFormats";
@@ -7,46 +7,105 @@ import "./AlbumDetails.css";
 
 type AlbumDetailsProps = {
   album: Album;
-  onUpdate: (album: Album) => void;
-  onDelete: (id: string) => void;
+  onUpdate: (album: Album) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   onClose: () => void;
 };
 
-function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps) {
+function AlbumDetails({
+  album,
+  onUpdate,
+  onDelete,
+  onClose
+}: AlbumDetailsProps) {
   const [editing, setEditing] = useState(false);
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
+  // Prevent duplicate requests before React rerenders.
+  const savingRef = useRef(false);
 
   const [title, setTitle] = useState(album.title);
   const [artist, setArtist] = useState(album.artist);
   const [format, setFormat] = useState(album.format);
   const [releaseYear, setReleaseYear] = useState(album.releaseYear);
 
-  function saveChanges(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    if (!title.trim() || !artist.trim()) return;
-
-    onUpdate({
-      ...album,
-      title: title.trim(),
-      artist: artist.trim(),
-      format,
-      releaseYear
-    });
-
-    setEditing(false);
+  function closeModal() {
+    if (savingRef.current || showDeleteConfirmation) return;
+    onClose();
   }
 
-  function deleteAlbum() {
-    onDelete(album.id);
-    onClose();
+  async function saveChanges(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+
+    if (savingRef.current || !title.trim() || !artist.trim()) return;
+
+    savingRef.current = true;
+    setIsSaving(true);
+
+    try {
+      await onUpdate({
+        ...album,
+        title: title.trim(),
+        artist: artist.trim(),
+        format,
+        releaseYear
+      });
+
+      setEditing(false);
+    } catch (error) {
+      console.error("Failed to update album:", error);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }
+
+  async function toggleFavorite() {
+    if (savingRef.current) return;
+
+    savingRef.current = true;
+    setIsSaving(true);
+
+    try {
+      await onUpdate({
+        ...album,
+        favorite: !album.favorite
+      });
+    } catch (error) {
+      console.error("Failed to update favorite:", error);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+  }
+
+  async function deleteAlbum() {
+    if (savingRef.current) return;
+
+    savingRef.current = true;
+    setIsSaving(true);
+
+    try {
+      await onDelete(album.id);
+      onClose();
+    } catch (error) {
+      console.error("Failed to delete album:", error);
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
   }
 
   return (
     <div
       className="details-overlay"
       onMouseDown={e => {
-        if (e.target === e.currentTarget && !showDeleteConfirmation) {
-          onClose();
+        if (
+          e.target === e.currentTarget &&
+          !showDeleteConfirmation
+        ) {
+          closeModal();
         }
       }}
     >
@@ -63,9 +122,9 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
 
           <button
             type="button"
-            onClick={onClose}
+            onClick={closeModal}
             aria-label="Close"
-            disabled={showDeleteConfirmation}
+            disabled={isSaving || showDeleteConfirmation}
           >
             <X size={20} />
           </button>
@@ -78,6 +137,7 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
               id="edit-title"
               value={title}
               onChange={e => setTitle(e.target.value)}
+              disabled={isSaving}
               required
             />
 
@@ -86,6 +146,7 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
               id="edit-artist"
               value={artist}
               onChange={e => setArtist(e.target.value)}
+              disabled={isSaving}
               required
             />
 
@@ -94,6 +155,7 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
               id="edit-format"
               value={format}
               onChange={e => setFormat(e.target.value)}
+              disabled={isSaving}
             >
               {albumFormats.map(item => (
                 <option key={item} value={item}>
@@ -110,18 +172,24 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
               max="2100"
               value={releaseYear}
               onChange={e => setReleaseYear(e.target.value)}
+              disabled={isSaving}
             />
 
             <div className="details-actions">
               <button
                 type="button"
                 onClick={() => setEditing(false)}
+                disabled={isSaving}
               >
                 Cancel
               </button>
 
-              <button type="submit" className="details-primary">
-                Save Changes
+              <button
+                type="submit"
+                className="details-primary"
+                disabled={isSaving}
+              >
+                {isSaving ? "Saving..." : "Save Changes"}
               </button>
             </div>
           </form>
@@ -153,24 +221,25 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
             <div className="details-actions">
               <button
                 type="button"
-                onClick={() =>
-                  onUpdate({
-                    ...album,
-                    favorite: !album.favorite
-                  })
-                }
+                onClick={toggleFavorite}
+                disabled={isSaving}
               >
                 <Heart
                   size={16}
                   fill={album.favorite ? "currentColor" : "none"}
                   color={album.favorite ? "#fca5a5" : "currentColor"}
                 />
-                {album.favorite ? "Unfavorite" : "Favorite"}
+                {isSaving
+                  ? "Saving..."
+                  : album.favorite
+                    ? "Unfavorite"
+                    : "Favorite"}
               </button>
 
               <button
                 type="button"
                 onClick={() => setEditing(true)}
+                disabled={isSaving}
               >
                 <Pencil size={16} />
                 Edit
@@ -180,6 +249,7 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
                 type="button"
                 className="details-delete"
                 onClick={() => setShowDeleteConfirmation(true)}
+                disabled={isSaving}
               >
                 <Trash2 size={16} />
                 Delete
@@ -216,6 +286,7 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
               <button
                 type="button"
                 onClick={() => setShowDeleteConfirmation(false)}
+                disabled={isSaving}
               >
                 Cancel
               </button>
@@ -224,8 +295,9 @@ function AlbumDetails({ album, onUpdate, onDelete, onClose }: AlbumDetailsProps)
                 type="button"
                 className="delete-confirm-button"
                 onClick={deleteAlbum}
+                disabled={isSaving}
               >
-                Delete Album
+                {isSaving ? "Deleting..." : "Delete Album"}
               </button>
             </div>
           </div>

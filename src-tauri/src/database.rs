@@ -59,9 +59,7 @@ pub struct Album {
     pub favorite: bool,
 }
 
-pub fn get_albums(
-    connection: &rusqlite::Connection,
-) -> rusqlite::Result<Vec<Album>> {
+pub fn get_albums(connection: &rusqlite::Connection,) -> rusqlite::Result<Vec<Album>> {
     let mut statement = connection.prepare(
         "SELECT id, title, artist, format, release_year, artwork, favorite
          FROM albums
@@ -81,4 +79,45 @@ pub fn get_albums(
     })?;
 
     albums.collect()
+}
+
+pub fn update_album(
+    connection: &rusqlite::Connection,
+    id: &str,
+    title: &str,
+    artist: &str,
+    format: &str,
+    release_year: &str,
+    artwork: Option<&str>,
+    favorite: bool,
+) -> rusqlite::Result<usize> {
+    connection.execute(
+        "UPDATE albums
+            SET title = ?1,
+                artist = ?2,
+                format = ?3,
+                release_year = ?4,
+                artwork = ?5,
+                favorite = ?6
+            WHERE id = ?7;",
+        rusqlite::params![
+            title,
+            artist,
+            format,
+            release_year,
+            artwork,
+            favorite,
+            id,
+        ],
+    )
+}
+
+pub fn delete_album(
+    connection: &rusqlite::Connection,
+    id: &str,
+) -> rusqlite::Result<usize> {
+    connection.execute(
+        "DELETE FROM albums WHERE id = ?1;",
+        rusqlite::params![id],
+    )
 }
