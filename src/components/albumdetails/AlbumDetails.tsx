@@ -259,7 +259,7 @@ function AlbumDetails({
                 <Heart
                   size={16}
                   fill={album.favorite ? "currentColor" : "none"}
-                  color={album.favorite ? "#fca5a5" : "currentColor"}
+                  color={album.favorite ? "var(--danger)" : "currentColor"}
                 />
                 {isSaving
                   ? "Saving..."

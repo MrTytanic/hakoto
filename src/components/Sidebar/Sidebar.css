@@ -4,8 +4,8 @@
   flex-shrink: 0;
   max-width: clamp(140px, 30vw, 220px);
   padding: 16px 10px;
-  background: #1c1c1f;
-  border-right: 1px solid #303034;
+  background: var(--surface);
+  border-right: 1px solid var(--border-subtle);
   overflow-x: hidden;
   overflow-y: auto;
   transition: width .25s ease;
@@ -24,7 +24,7 @@
   padding: 0 8px;
 }
 
-.sidebar-brand { display: flex; align-items: center; gap: 10px; color: #f4f4f5; }
+.sidebar-brand { display: flex; align-items: center; gap: 10px; color: var(--text-strong); }
 .sidebar-logo { font-size: 21px; font-weight: 700; letter-spacing: -.8px; }
 
 .sidebar-toggle {
@@ -37,11 +37,11 @@
   border: 0;
   border-radius: 7px;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--text-muted);
   cursor: pointer;
 }
 
-.sidebar-toggle:hover { background: #303034; color: #fff; }
+.sidebar-toggle:hover { background: var(--border-subtle); color: var(--text-strong); }
 
 .sidebar-navigation { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
 
@@ -55,7 +55,7 @@
   border: 0;
   border-radius: 8px;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--text-muted);
   font-size: 13px;
   font-weight: 500;
   text-align: left;
@@ -65,13 +65,13 @@
 }
 
 .sidebar-button svg { flex-shrink: 0; }
-.sidebar-button:hover { background: #2b2b30; color: #fff; }
-.sidebar-button.active { background: #34343a; color: #fff; }
+.sidebar-button:hover { background: var(--navigation-hover); color: var(--text-strong); }
+.sidebar-button.active { background: var(--navigation-active); color: var(--text-strong); }
 
-.sidebar-footer { flex-shrink: 0; margin-top: auto; padding-top: 12px; border-top: 1px solid #303034; }
+.sidebar-footer { flex-shrink: 0; margin-top: auto; padding-top: 12px; border-top: 1px solid var(--border-subtle); }
 .sidebar.collapsed .sidebar-header { justify-content: center; padding: 0; }
 .sidebar.collapsed .sidebar-button { justify-content: center; padding: 0; }
-.sidebar button:focus-visible { outline: 2px solid #a1a1aa; outline-offset: 2px; }
+.sidebar button:focus-visible { outline: 2px solid var(--text-muted); outline-offset: 2px; }
 
 @media (prefers-reduced-motion: reduce) {
   .sidebar, .sidebar-button { transition: none; }

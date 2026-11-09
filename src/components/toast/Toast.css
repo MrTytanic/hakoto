@@ -16,11 +16,11 @@
   align-items: center;
   gap: 12px;
   padding: 14px;
-  border: 1px solid #3f3f46;
+  border: 1px solid var(--border);
   border-radius: 9px;
-  background: #242427;
-  color: #e8e8ed;
-  box-shadow: 0 8px 30px rgba(0, 0, 0, .3);
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 8px 30px var(--shadow-soft);
   font-size: 13px;
   pointer-events: auto;
 }
@@ -31,11 +31,11 @@
 }
 
 .toast-success > svg {
-  color: #86efac;
+  color: var(--success);
 }
 
 .toast-error > svg {
-  color: #fca5a5;
+  color: var(--danger);
 }
 
 .toast button {
@@ -43,10 +43,10 @@
   padding: 3px;
   border: none;
   background: transparent;
-  color: #a1a1aa;
+  color: var(--text-muted);
   cursor: pointer;
 }
 
 .toast button:hover {
-  color: #ffffff;
+  color: var(--text-strong);
 }
