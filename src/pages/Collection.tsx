@@ -1,20 +1,22 @@
 
-import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, Disc3, X, ImagePlus, UserRound } from "lucide-react";
+import { Plus, Disc3, X, UserRound } from "lucide-react";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
+import { ArtworkPicker } from "../components/Artwork";
+import { encodeArtwork, type ArtworkChange } from "../artwork";
 import "./Collection.css";
 
 type CollectionProps = {
   profile: Profile;
   albums: Album[];
   onAdd: (album: Album) => void;
-  onUpdate: (album: Album) => void;
-  onDelete: (id: string) => void;
+  onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
   onNotify?: (message: string, type: "success" | "error") => void;
 };
 
@@ -34,66 +36,18 @@ function Collection({
   const [artist, setArtist] = useState("");
   const [format, setFormat] = useState("CD");
   const [releaseYear, setReleaseYear] = useState("");
-  const [artwork, setArtwork] = useState<string | null>(null);
-
-  // Tracks temporary artwork owned by the Add Album form.
-  const ownedArtwork = useRef<string | null>(null);
+  const [artwork, setArtwork] = useState<File | null>(null);
 
   // Prevents duplicate submissions before React updates isSaving.
   const savingRef = useRef(false);
 
   const selectedAlbum = albums.find(album => album.id === selectedId);
 
-  // Clean up abandoned artwork when Collection unmounts.
-  useEffect(() => {
-    return () => {
-      if (ownedArtwork.current) {
-        URL.revokeObjectURL(ownedArtwork.current);
-      }
-    };
-  }, []);
-
   function notify(message: string, type: "success" | "error" = "error") {
     onNotify?.(message, type);
   }
 
-  function handleArtwork(e: ChangeEvent<HTMLInputElement>) {
-    if (savingRef.current) return;
-
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    e.target.value = "";
-
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type)) {
-      notify("Please select a PNG, JPG, or WebP image.");
-      return;
-    }
-
-    if (file.size > 5 * 1024 * 1024) {
-      notify("Artwork must be smaller than 5 MB.");
-      return;
-    }
-
-    // Remove the previous unsaved preview, if any.
-    if (ownedArtwork.current) {
-      URL.revokeObjectURL(ownedArtwork.current);
-    }
-
-    const url = URL.createObjectURL(file);
-
-    ownedArtwork.current = url;
-    setArtwork(url);
-  }
-
   function resetForm() {
-    // Only revoke artwork still owned by this form.
-    if (ownedArtwork.current) {
-      URL.revokeObjectURL(ownedArtwork.current);
-    }
-
-    ownedArtwork.current = null;
-
     setTitle("");
     setArtist("");
     setFormat("CD");
@@ -119,7 +73,7 @@ function Collection({
       artist: artist.trim(),
       format,
       releaseYear,
-      artwork,
+      artwork: null,
       favorite: false
     };
 
@@ -127,35 +81,17 @@ function Collection({
     setIsSaving(true);
 
     try {
-      // Save album metadata to SQLite through Tauri.
-      await invoke<number>("save_album", {
-        id: album.id,
-        title: album.title,
-        artist: album.artist,
-        format: album.format,
-        releaseYear: album.releaseYear,
-
-        // Blob URLs are temporary. Persistent artwork storage
-        // will be implemented separately.
-        artwork: null,
-
-        favorite: album.favorite
-      });
+      const bytes = artwork ? await encodeArtwork(artwork) : null;
+      const saved = await invoke<Album>("save_album", { album, artwork: bytes });
+      onAdd(saved);
     } catch (error) {
       console.error("Failed to save album:", error);
-      notify("Failed to save album. Please try again.", "error");
+      notify(error instanceof Error ? error.message : "Failed to save album. Please try again.");
       return;
     } finally {
       savingRef.current = false;
       setIsSaving(false);
     }
-
-    // SQLite confirmed that the album was saved.
-    onAdd(album);
-
-    // Transfer artwork ownership to the collection.
-    // This prevents resetForm() from deleting the image.
-    ownedArtwork.current = null;
 
     resetForm();
     setIsModalOpen(false);
@@ -221,6 +157,7 @@ function Collection({
           album={selectedAlbum}
           onUpdate={onUpdate}
           onDelete={onDelete}
+          onError={notify}
           onClose={() => setSelectedId(null)}
         />
       )}
@@ -306,32 +243,12 @@ function Collection({
                   </div>
                 </div>
 
-                <div className="album-form-field">
-                  <label htmlFor="album-artwork">Album Artwork</label>
-
-                  <label
-                    className="album-artwork-upload"
-                    htmlFor="album-artwork"
-                  >
-                    {artwork ? (
-                      <img src={artwork} alt="Artwork preview" />
-                    ) : (
-                      <>
-                        <ImagePlus size={25} />
-                        <span>Upload Cover Art</span>
-                        <small>PNG, JPG, or WebP (max 5 MB)</small>
-                      </>
-                    )}
-                  </label>
-
-                  <input
-                    id="album-artwork"
-                    type="file"
-                    accept="image/png,image/jpeg,image/webp"
-                    onChange={handleArtwork}
-                    hidden
-                  />
-                </div>
+                <ArtworkPicker
+                  artwork={artwork}
+                  disabled={isSaving}
+                  onChange={setArtwork}
+                  onError={notify}
+                />
 
                 <div className="album-modal-actions">
                   <button

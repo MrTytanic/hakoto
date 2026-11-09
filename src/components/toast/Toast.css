@@ -27,6 +27,7 @@
 
 .toast span {
   flex: 1;
+  overflow-wrap: anywhere;
 }
 
 .toast-success > svg {

@@ -2,11 +2,12 @@
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
-  height: 100vh;
+  max-width: clamp(140px, 30vw, 220px);
   padding: 16px 10px;
   background: #1c1c1f;
   border-right: 1px solid #303034;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
   transition: width .25s ease;
 }
 
@@ -17,7 +18,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: 48px;
+  min-height: 48px;
+  flex-shrink: 0;
   margin-bottom: 24px;
   padding: 0 8px;
 }
@@ -41,7 +43,7 @@
 
 .sidebar-toggle:hover { background: #303034; color: #fff; }
 
-.sidebar-navigation { display: flex; flex-direction: column; gap: 4px; }
+.sidebar-navigation { flex-shrink: 0; display: flex; flex-direction: column; gap: 4px; }
 
 .sidebar-button {
   display: flex;
@@ -66,7 +68,7 @@
 .sidebar-button:hover { background: #2b2b30; color: #fff; }
 .sidebar-button.active { background: #34343a; color: #fff; }
 
-.sidebar-footer { margin-top: auto; padding-top: 12px; border-top: 1px solid #303034; }
+.sidebar-footer { flex-shrink: 0; margin-top: auto; padding-top: 12px; border-top: 1px solid #303034; }
 .sidebar.collapsed .sidebar-header { justify-content: center; padding: 0; }
 .sidebar.collapsed .sidebar-button { justify-content: center; padding: 0; }
 .sidebar button:focus-visible { outline: 2px solid #a1a1aa; outline-offset: 2px; }

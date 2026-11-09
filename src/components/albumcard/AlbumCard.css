@@ -2,6 +2,7 @@
   display: block;
   width: 100%;
   min-width: 0;
+  max-width: 240px;
   padding: 0;
   border: none;
   background: transparent;
@@ -53,6 +54,7 @@
 
 .album-card p {
   margin: 0 0 5px;
+  overflow-wrap: anywhere;
   color: #a1a1aa;
   font-size: 13px;
 }

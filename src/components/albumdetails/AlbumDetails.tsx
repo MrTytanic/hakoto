@@ -3,11 +3,14 @@ import { useRef, useState, type FormEvent } from "react";
 import { Disc3, Heart, Pencil, Trash2, X } from "lucide-react";
 import type { Album } from "../../types/Album";
 import { albumFormats } from "../../constants/albumFormats";
+import { artworkUrl, encodeArtwork, type ArtworkChange } from "../../artwork";
+import { ArtworkImage, ArtworkPicker } from "../Artwork";
 import "./AlbumDetails.css";
 
 type AlbumDetailsProps = {
   album: Album;
-  onUpdate: (album: Album) => Promise<void>;
+  onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
+  onError: (message: string) => void;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
 };
@@ -16,6 +19,7 @@ function AlbumDetails({
   album,
   onUpdate,
   onDelete,
+  onError,
   onClose
 }: AlbumDetailsProps) {
   const [editing, setEditing] = useState(false);
@@ -29,6 +33,17 @@ function AlbumDetails({
   const [artist, setArtist] = useState(album.artist);
   const [format, setFormat] = useState(album.format);
   const [releaseYear, setReleaseYear] = useState(album.releaseYear);
+
+  const [artwork, setArtwork] = useState<File | null>();
+
+  function startEditing() {
+    setTitle(album.title);
+    setArtist(album.artist);
+    setFormat(album.format);
+    setReleaseYear(album.releaseYear);
+    setArtwork(undefined);
+    setEditing(true);
+  }
 
   function closeModal() {
     if (savingRef.current || showDeleteConfirmation) return;
@@ -44,13 +59,25 @@ function AlbumDetails({
     setIsSaving(true);
 
     try {
+      let change: ArtworkChange | undefined;
+      if (artwork === null) {
+        change = { kind: "remove" };
+      } else if (artwork) {
+        try {
+          change = { kind: "replace", bytes: await encodeArtwork(artwork) };
+        } catch (error) {
+          onError(error instanceof Error ? error.message : "Artwork could not be prepared.");
+          return;
+        }
+      }
+
       await onUpdate({
         ...album,
         title: title.trim(),
         artist: artist.trim(),
         format,
         releaseYear
-      });
+      }, change);
 
       setEditing(false);
     } catch (error) {
@@ -175,6 +202,14 @@ function AlbumDetails({
               disabled={isSaving}
             />
 
+            <ArtworkPicker
+              artwork={artwork}
+              filename={album.artwork}
+              disabled={isSaving}
+              onChange={setArtwork}
+              onError={onError}
+            />
+
             <div className="details-actions">
               <button
                 type="button"
@@ -197,14 +232,11 @@ function AlbumDetails({
           <>
             <div className="details-content">
               <div className="details-artwork">
-                {album.artwork ? (
-                  <img
-                    src={album.artwork}
-                    alt={`${album.title} cover`}
-                  />
-                ) : (
-                  <Disc3 size={48} strokeWidth={1.2} />
-                )}
+                <ArtworkImage
+                  src={artworkUrl(album.artwork)}
+                  alt={`${album.title} cover`}
+                  fallback={<Disc3 size={48} strokeWidth={1.2} />}
+                />
               </div>
 
               <div className="details-information">
@@ -238,7 +270,7 @@ function AlbumDetails({
 
               <button
                 type="button"
-                onClick={() => setEditing(true)}
+                onClick={startEditing}
                 disabled={isSaving}
               >
                 <Pencil size={16} />
