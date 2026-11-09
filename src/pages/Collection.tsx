@@ -1,4 +1,6 @@
+
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { Plus, Disc3, X, ImagePlus, UserRound } from "lucide-react";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
@@ -25,6 +27,7 @@ function Collection({
   onNotify
 }: CollectionProps) {
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
@@ -35,6 +38,9 @@ function Collection({
 
   // Tracks temporary artwork owned by the Add Album form.
   const ownedArtwork = useRef<string | null>(null);
+
+  // Prevents duplicate submissions before React updates isSaving.
+  const savingRef = useRef(false);
 
   const selectedAlbum = albums.find(album => album.id === selectedId);
 
@@ -52,6 +58,8 @@ function Collection({
   }
 
   function handleArtwork(e: ChangeEvent<HTMLInputElement>) {
+    if (savingRef.current) return;
+
     const file = e.target.files?.[0];
     if (!file) return;
 
@@ -94,14 +102,16 @@ function Collection({
   }
 
   function closeAddModal() {
+    if (savingRef.current) return;
+
     setIsModalOpen(false);
     resetForm();
   }
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (!title.trim() || !artist.trim()) return;
+    if (savingRef.current || !title.trim() || !artist.trim()) return;
 
     const album: Album = {
       id: crypto.randomUUID(),
@@ -113,10 +123,38 @@ function Collection({
       favorite: false
     };
 
+    savingRef.current = true;
+    setIsSaving(true);
+
+    try {
+      // Save album metadata to SQLite through Tauri.
+      await invoke<number>("save_album", {
+        id: album.id,
+        title: album.title,
+        artist: album.artist,
+        format: album.format,
+        releaseYear: album.releaseYear,
+
+        // Blob URLs are temporary. Persistent artwork storage
+        // will be implemented separately.
+        artwork: null,
+
+        favorite: album.favorite
+      });
+    } catch (error) {
+      console.error("Failed to save album:", error);
+      notify("Failed to save album. Please try again.", "error");
+      return;
+    } finally {
+      savingRef.current = false;
+      setIsSaving(false);
+    }
+
+    // SQLite confirmed that the album was saved.
     onAdd(album);
 
     // Transfer artwork ownership to the collection.
-    // This prevents resetForm() from deleting the album's image.
+    // This prevents resetForm() from deleting the image.
     ownedArtwork.current = null;
 
     resetForm();
@@ -199,6 +237,7 @@ function Collection({
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-album-title"
+            aria-busy={isSaving}
           >
             <div className="album-modal-header">
               <h2 id="add-album-title">Add Album</h2>
@@ -207,101 +246,112 @@ function Collection({
                 type="button"
                 aria-label="Close"
                 onClick={closeAddModal}
+                disabled={isSaving}
               >
                 <X size={20} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit}>
-              <div className="album-form-field">
-                <label htmlFor="album-title">Album Title</label>
-                <input
-                  id="album-title"
-                  value={title}
-                  onChange={e => setTitle(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="album-form-field">
-                <label htmlFor="album-artist">Artist</label>
-                <input
-                  id="album-artist"
-                  value={artist}
-                  onChange={e => setArtist(e.target.value)}
-                  required
-                />
-              </div>
-
-              <div className="album-form-row">
+              <fieldset
+                disabled={isSaving}
+                style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+              >
                 <div className="album-form-field">
-                  <label htmlFor="album-format">Format</label>
-                  <select
-                    id="album-format"
-                    value={format}
-                    onChange={e => setFormat(e.target.value)}
-                  >
-                    {albumFormats.map(item => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div className="album-form-field">
-                  <label htmlFor="album-year">Release Year</label>
+                  <label htmlFor="album-title">Album Title</label>
                   <input
-                    id="album-year"
-                    type="number"
-                    min="1850"
-                    max="2100"
-                    value={releaseYear}
-                    onChange={e => setReleaseYear(e.target.value)}
+                    id="album-title"
+                    value={title}
+                    onChange={e => setTitle(e.target.value)}
+                    required
                   />
                 </div>
-              </div>
 
-              <div className="album-form-field">
-                <label htmlFor="album-artwork">Album Artwork</label>
+                <div className="album-form-field">
+                  <label htmlFor="album-artist">Artist</label>
+                  <input
+                    id="album-artist"
+                    value={artist}
+                    onChange={e => setArtist(e.target.value)}
+                    required
+                  />
+                </div>
 
-                <label
-                  className="album-artwork-upload"
-                  htmlFor="album-artwork"
-                >
-                  {artwork ? (
-                    <img src={artwork} alt="Artwork preview" />
-                  ) : (
-                    <>
-                      <ImagePlus size={25} />
-                      <span>Upload Cover Art</span>
-                      <small>PNG, JPG, or WebP (max 5 MB)</small>
-                    </>
-                  )}
-                </label>
+                <div className="album-form-row">
+                  <div className="album-form-field">
+                    <label htmlFor="album-format">Format</label>
+                    <select
+                      id="album-format"
+                      value={format}
+                      onChange={e => setFormat(e.target.value)}
+                    >
+                      {albumFormats.map(item => (
+                        <option key={item} value={item}>
+                          {item}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
 
-                <input
-                  id="album-artwork"
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp"
-                  onChange={handleArtwork}
-                  hidden
-                />
-              </div>
+                  <div className="album-form-field">
+                    <label htmlFor="album-year">Release Year</label>
+                    <input
+                      id="album-year"
+                      type="number"
+                      min="1850"
+                      max="2100"
+                      value={releaseYear}
+                      onChange={e => setReleaseYear(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-              <div className="album-modal-actions">
-                <button
-                  type="button"
-                  className="album-cancel"
-                  onClick={closeAddModal}
-                >
-                  Cancel
-                </button>
+                <div className="album-form-field">
+                  <label htmlFor="album-artwork">Album Artwork</label>
 
-                <button type="submit" className="album-submit">
-                  Add to Collection
-                </button>
-              </div>
+                  <label
+                    className="album-artwork-upload"
+                    htmlFor="album-artwork"
+                  >
+                    {artwork ? (
+                      <img src={artwork} alt="Artwork preview" />
+                    ) : (
+                      <>
+                        <ImagePlus size={25} />
+                        <span>Upload Cover Art</span>
+                        <small>PNG, JPG, or WebP (max 5 MB)</small>
+                      </>
+                    )}
+                  </label>
+
+                  <input
+                    id="album-artwork"
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp"
+                    onChange={handleArtwork}
+                    hidden
+                  />
+                </div>
+
+                <div className="album-modal-actions">
+                  <button
+                    type="button"
+                    className="album-cancel"
+                    onClick={closeAddModal}
+                    disabled={isSaving}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="submit"
+                    className="album-submit"
+                    disabled={isSaving}
+                  >
+                    {isSaving ? "Saving..." : "Add to Collection"}
+                  </button>
+                </div>
+              </fieldset>
             </form>
           </div>
         </div>

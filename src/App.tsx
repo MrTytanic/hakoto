@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import type { Profile } from "./types/Profile";
 import type { Album } from "./types/Album";
 import type { ToastData } from "./components/toast/Toast";
@@ -23,6 +24,8 @@ function App() {
   });
 
   const [albums, setAlbums] = useState<Album[]>([]);
+  const [isLoadingAlbums, setIsLoadingAlbums] = useState(true);
+
   const albumsRef = useRef(albums);
   albumsRef.current = albums;
 
@@ -61,6 +64,37 @@ function App() {
     return () => {
       timers.forEach(timer => clearTimeout(timer));
       timers.clear();
+    };
+  }, []);
+
+  // Load saved albums from SQLite on startup.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadAlbums() {
+      try {
+        const savedAlbums = await invoke<Album[]>("get_albums");
+
+        if (!cancelled) {
+          setAlbums(savedAlbums);
+        }
+      } catch (error) {
+        console.error("Failed to load albums:", error);
+
+        if (!cancelled) {
+          notify("Failed to load your saved albums.", "error");
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoadingAlbums(false);
+        }
+      }
+    }
+
+    loadAlbums();
+
+    return () => {
+      cancelled = true;
     };
   }, []);
 
@@ -145,7 +179,13 @@ function App() {
       />
 
       <main className="main-content">
-        {pages[activePage]}
+        {isLoadingAlbums ? (
+          <div role="status" aria-live="polite">
+            Loading your collection...
+          </div>
+        ) : (
+          pages[activePage]
+        )}
       </main>
 
       <Toast
