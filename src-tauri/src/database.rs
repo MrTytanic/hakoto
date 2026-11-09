@@ -358,6 +358,94 @@ mod tests {
     }
 
     #[test]
+    fn initialization_creates_schema_and_preserves_rows_on_repeat() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let db = initialize_database(app_dir, None).unwrap();
+        assert!(app_dir.join("hakoto.db").is_file());
+        assert!(get_albums(&db).unwrap().is_empty());
+
+        // Omit the optional columns to exercise the schema defaults.
+        db.execute(
+            "INSERT INTO albums (id, title, artist, format, release_year)
+             VALUES ('album', 'Title', 'Artist', 'CD', '1999')",
+            [],
+        )
+        .unwrap();
+        drop(db);
+
+        let db = initialize_database(app_dir, None).unwrap();
+        let albums = get_albums(&db).unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].id, "album");
+        assert!(!albums[0].favorite);
+        assert!(albums[0].artwork.is_none());
+    }
+
+    #[test]
+    fn album_metadata_favorite_and_deletion_persist_across_reopens() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let mut db = initialize_database(app_dir, None).unwrap();
+        save_album(&mut db, app_dir, album("album"), None).unwrap();
+        let mut saved = get_albums(&db).unwrap().pop().unwrap();
+        assert_eq!(saved.title, "Title");
+        assert!(!saved.favorite);
+
+        saved.title = "Updated title".into();
+        saved.artist = "Updated artist".into();
+        saved.format = "Vinyl".into();
+        saved.release_year = "2001".into();
+        saved.favorite = true;
+        update_album(&mut db, app_dir, saved, None).unwrap();
+        drop(db);
+
+        let mut db = initialize_database(app_dir, None).unwrap();
+        let albums = get_albums(&db).unwrap();
+        assert_eq!(albums.len(), 1);
+        let updated = &albums[0];
+        assert_eq!(updated.id, "album");
+        assert_eq!(updated.title, "Updated title");
+        assert_eq!(updated.artist, "Updated artist");
+        assert_eq!(updated.format, "Vinyl");
+        assert_eq!(updated.release_year, "2001");
+        assert!(updated.favorite);
+        assert_eq!(delete_album(&mut db, app_dir, "album").unwrap(), 1);
+        drop(db);
+
+        let db = initialize_database(app_dir, None).unwrap();
+        assert!(get_albums(&db).unwrap().is_empty());
+    }
+
+    #[test]
+    fn invalid_album_operations_leave_the_collection_unchanged() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        assert!(initialize_database(&app_dir.join("missing"), None).is_err());
+        let mut db = initialize_database(app_dir, None).unwrap();
+        save_album(&mut db, app_dir, album("album"), None).unwrap();
+
+        let mut duplicate = album("album");
+        duplicate.title = "Duplicate".into();
+        assert!(save_album(&mut db, app_dir, duplicate, None).is_err());
+        assert!(
+            update_album(
+                &mut db,
+                app_dir,
+                album("missing"),
+                Some(ArtworkChange::Replace(COVER.to_vec())),
+            )
+            .is_err()
+        );
+        assert_eq!(delete_album(&mut db, app_dir, "missing").unwrap(), 0);
+        let albums = get_albums(&db).unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].id, "album");
+        assert_eq!(albums[0].title, "Title");
+        assert!(!app_dir.join("artwork").exists());
+    }
+
+    #[test]
     fn renamed_app_imports_existing_collection_once_and_can_retry() {
         let legacy = TestDirectory::new();
         let current = TestDirectory::new();
@@ -368,7 +456,14 @@ mod tests {
             .unwrap()
             .artwork
             .unwrap();
-        save_album(&mut source, &legacy.0, album("plain"), None).unwrap();
+        save_album(&mut source, &legacy.0, album("missing"), None).unwrap();
+        source
+            .execute(
+                "UPDATE albums SET artwork = '0123456789abcdef0123456789abcdef.webp'
+                 WHERE id = 'missing'",
+                [],
+            )
+            .unwrap();
         let legacy_database = legacy.0.join(LEGACY_DATABASE_NAME);
         source
             .execute("VACUUM INTO ?1", [legacy_database.to_str().unwrap()])
@@ -391,12 +486,13 @@ mod tests {
             artwork::read(&current.0, albums[0].artwork.as_deref().unwrap()).as_deref(),
             Some(COVER)
         );
+        assert_eq!(albums[1].id, "missing");
         assert!(albums[1].artwork.is_none());
         assert_eq!(artwork::read(&legacy.0, &original).as_deref(), Some(COVER));
         assert!(legacy_database.is_file());
 
         delete_album(&mut destination, &current.0, "cover").unwrap();
-        delete_album(&mut destination, &current.0, "plain").unwrap();
+        delete_album(&mut destination, &current.0, "missing").unwrap();
         drop(destination);
         let reopened = initialize_database(&current.0, Some(&legacy.0)).unwrap();
         assert!(get_albums(&reopened).unwrap().is_empty());
@@ -411,6 +507,14 @@ mod tests {
             .unwrap()
             .artwork
             .unwrap();
+        let stored = album_artwork(&db, "cover").unwrap().unwrap();
+        assert_eq!(stored, original);
+        assert!(artwork::is_filename(&stored));
+        assert!(Path::new(&stored).is_relative());
+        assert_eq!(
+            fs::read(app_dir.join("artwork").join(&stored)).unwrap(),
+            COVER
+        );
         save_album(&mut db, app_dir, album("plain"), None).unwrap();
         db.execute(
             "UPDATE albums SET artwork = 'blob:legacy' WHERE id = 'plain'",
@@ -424,13 +528,18 @@ mod tests {
         assert_eq!(albums[0].artwork.as_deref(), Some(original.as_str()));
         assert_eq!(artwork::read(app_dir, &original).as_deref(), Some(COVER));
         assert!(albums[1].artwork.is_none());
+        assert_eq!(album_artwork(&db, "plain").unwrap(), None);
         assert_eq!(albums[1].release_year, "1999");
 
         let mut favorite = album("cover");
+        favorite.title = "Renamed album".into();
         favorite.favorite = true;
         let favorite = update_album(&mut db, app_dir, favorite, None).unwrap();
         assert_eq!(favorite.artwork.as_deref(), Some(original.as_str()));
-        assert!(get_albums(&db).unwrap()[0].favorite);
+        let albums = get_albums(&db).unwrap();
+        assert_eq!(albums[0].title, "Renamed album");
+        assert!(albums[0].favorite);
+        assert_eq!(artwork::read(app_dir, &original).as_deref(), Some(COVER));
 
         // Simulate an existing shared reference.
         db.execute(
@@ -458,9 +567,10 @@ mod tests {
         )
         .unwrap();
         assert!(removed.artwork.is_none());
-        assert!(artwork::read(app_dir, &original).is_none());
+        assert_eq!(album_artwork(&db, "plain").unwrap(), None);
+        assert!(!app_dir.join("artwork").join(original).exists());
         assert_eq!(delete_album(&mut db, app_dir, "cover").unwrap(), 1);
-        assert!(artwork::read(app_dir, &replacement).is_none());
+        assert!(!app_dir.join("artwork").join(replacement).exists());
         assert_eq!(get_albums(&db).unwrap().len(), 1);
     }
 
@@ -474,6 +584,18 @@ mod tests {
             .artwork
             .unwrap();
         assert!(save_album(&mut db, app_dir, album("cover"), Some(COVER.to_vec())).is_err());
+
+        let mut changed = album("cover");
+        changed.title = "Failed update".into();
+        assert!(
+            update_album(
+                &mut db,
+                app_dir,
+                changed,
+                Some(ArtworkChange::Replace(b"invalid artwork".to_vec())),
+            )
+            .is_err()
+        );
 
         db.execute_batch(
             "CREATE TRIGGER reject_update BEFORE UPDATE ON albums
@@ -492,17 +614,37 @@ mod tests {
             .is_err()
         );
         assert!(delete_album(&mut db, app_dir, "cover").is_err());
+        db.execute_batch("DROP TRIGGER reject_update; DROP TRIGGER reject_delete;")
+            .unwrap();
+        drop(db);
+
+        let mut db = initialize_database(app_dir, None).unwrap();
         assert_eq!(fs::read_dir(app_dir.join("artwork")).unwrap().count(), 1);
-        assert_eq!(
-            get_albums(&db).unwrap()[0].artwork.as_deref(),
-            Some(original.as_str())
-        );
+        let mut saved = get_albums(&db).unwrap().pop().unwrap();
+        assert_eq!(saved.title, "Title");
+        assert_eq!(saved.artwork.as_deref(), Some(original.as_str()));
+        assert_eq!(artwork::read(app_dir, &original).as_deref(), Some(COVER));
 
         let orphan = "0123456789abcdef0123456789abcdef.webp";
         artwork::write(app_dir, orphan, COVER).unwrap();
         clean_orphaned_artwork(&mut db, app_dir).unwrap();
         assert!(artwork::read(app_dir, orphan).is_none());
         assert!(artwork::read(app_dir, &original).is_some());
+
+        saved.title = "Retried update".into();
+        let replacement = update_album(
+            &mut db,
+            app_dir,
+            saved,
+            Some(ArtworkChange::Replace(COVER.to_vec())),
+        )
+        .unwrap()
+        .artwork
+        .unwrap();
+        assert!(!app_dir.join("artwork").join(original).exists());
+        assert_eq!(artwork::read(app_dir, &replacement).as_deref(), Some(COVER));
+        assert_eq!(get_albums(&db).unwrap()[0].title, "Retried update");
+        assert_eq!(fs::read_dir(app_dir.join("artwork")).unwrap().count(), 1);
     }
 
     #[test]
@@ -513,7 +655,36 @@ mod tests {
         assert!(!artwork::validate(&COVER[..COVER.len() - 1]));
         assert!(!artwork::validate(&vec![0; 1024 * 1024 + 1]));
         let directory = TestDirectory::new();
-        assert!(artwork::write(&directory.0, "../outside.webp", COVER).is_err());
-        assert!(artwork::read(&directory.0, "../hakoto.db").is_none());
+        let app_dir = &directory.0;
+        let name = "0123456789abcdef0123456789abcdef.webp";
+        let outside = app_dir.join(name);
+        fs::write(&outside, COVER).unwrap();
+        fs::create_dir(app_dir.join("artwork")).unwrap();
+
+        for path in [
+            format!("../{name}"),
+            format!("..\\{name}"),
+            outside.to_string_lossy().into_owned(),
+        ] {
+            assert!(artwork::write(app_dir, &path, COVER).is_err());
+            assert_eq!(
+                artwork::read_checked(app_dir, &path).unwrap_err().kind(),
+                io::ErrorKind::InvalidInput
+            );
+        }
+        assert_eq!(fs::read(outside).unwrap(), COVER);
+        assert_eq!(
+            artwork::read_checked(app_dir, name).unwrap_err().kind(),
+            io::ErrorKind::NotFound
+        );
+
+        let corrupt = app_dir.join("artwork").join(name);
+        fs::write(&corrupt, b"invalid artwork").unwrap();
+        assert_eq!(
+            artwork::read_checked(app_dir, name).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        assert!(artwork::write(app_dir, name, COVER).is_err());
+        assert_eq!(fs::read(corrupt).unwrap(), b"invalid artwork");
     }
 }
