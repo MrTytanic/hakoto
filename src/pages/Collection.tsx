@@ -1,10 +1,11 @@
 
-import { useRef, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Plus, Disc3, X, UserRound } from "lucide-react";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
+import { getVisibleAlbums, type CollectionSort } from "../collectionView";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import { ArtworkPicker } from "../components/Artwork";
@@ -28,6 +29,15 @@ function Collection({
   onDelete,
   onNotify
 }: CollectionProps) {
+  const [query, setQuery] = useState("");
+  const [formatFilter, setFormatFilter] = useState("");
+  const [sort, setSort] = useState<CollectionSort>("collection");
+  const searchRef = useRef<HTMLInputElement>(null);
+  const visibleAlbums = useMemo(
+    () => getVisibleAlbums(albums, { query, format: formatFilter, sort }),
+    [albums, query, formatFilter, sort]
+  );
+
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -42,6 +52,17 @@ function Collection({
   const savingRef = useRef(false);
 
   const selectedAlbum = albums.find(album => album.id === selectedId);
+
+  function clearSearch() {
+    setQuery("");
+    searchRef.current?.focus();
+  }
+
+  function resetFilters() {
+    clearSearch();
+    setFormatFilter("");
+    setSort("collection");
+  }
 
   function notify(message: string, type: "success" | "error" = "error") {
     onNotify?.(message, type);
@@ -128,6 +149,56 @@ function Collection({
         </button>
       </div>
 
+      {albums.length > 0 && (
+        <section className="collection-tools" aria-label="Collection search and filters">
+          <div className="album-form-field collection-search">
+            <label htmlFor="collection-search">Search albums</label>
+            <div className="collection-search-input">
+              <input
+                id="collection-search"
+                type="search"
+                ref={searchRef}
+                value={query}
+                onChange={e => setQuery(e.target.value)}
+                placeholder="Title or artist"
+              />
+              {query && (
+                <button type="button" aria-label="Clear search" onClick={clearSearch}>
+                  <X size={16} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+
+          <div className="album-form-field">
+            <label htmlFor="collection-format">Format</label>
+            <select id="collection-format" value={formatFilter} onChange={e => setFormatFilter(e.target.value)}>
+              <option value="">All formats</option>
+              {albumFormats.map(item => <option key={item}>{item}</option>)}
+            </select>
+          </div>
+
+          <div className="album-form-field">
+            <label htmlFor="collection-sort">Sort by</label>
+            <select id="collection-sort" value={sort} onChange={e => setSort(e.target.value as CollectionSort)}>
+              <option value="collection">Date added</option>
+              <option value="title-asc">Title A–Z</option>
+              <option value="title-desc">Title Z–A</option>
+              <option value="year-newest">Release year (newest)</option>
+              <option value="year-oldest">Release year (oldest)</option>
+            </select>
+          </div>
+
+          <button type="button" className="album-cancel collection-reset" onClick={resetFilters}>
+            Reset filters
+          </button>
+
+          <p className="collection-result-count" role="status">
+            {visibleAlbums.length} {visibleAlbums.length === 1 ? "album" : "albums"}
+          </p>
+        </section>
+      )}
+
       {albums.length === 0 ? (
         <div className="collection-empty">
           <Disc3 size={42} strokeWidth={1.2} />
@@ -139,9 +210,15 @@ function Collection({
             Add Your First Album
           </button>
         </div>
+      ) : visibleAlbums.length === 0 ? (
+        <div className="collection-empty">
+          <Disc3 size={42} strokeWidth={1.2} aria-hidden="true" />
+          <h2>No matching albums</h2>
+          <p>Try a different title, artist, or format.</p>
+        </div>
       ) : (
         <div className="album-grid">
-          {albums.map(album => (
+          {visibleAlbums.map(album => (
             <AlbumCard
               key={album.id}
               album={album}

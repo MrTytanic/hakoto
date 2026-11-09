@@ -26,6 +26,9 @@ jobs:
       - name: Build frontend
         run: npm run build
 
+      - name: Run frontend tests
+        run: npm test
+
   rust:
     name: Rust checks (Windows)
     runs-on: windows-latest
