@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getVisibleAlbums } from "../src/collectionView.ts";
+import { getVisibleAlbums, groupVisibleAlbums } from "../src/collectionView.ts";
 
 function album(id, title, artist, format, releaseYear) {
   return Object.freeze({ id, title, artist, format, releaseYear, artwork: null, favorite: false });
@@ -46,4 +46,58 @@ test("combines search, exact format, and sort", () => {
 test("returns empty results for incompatible filters or an empty collection", () => {
   assert.deepEqual(visibleIds({ query: "echoes", format: "Cassette", sort: "title-asc" }), []);
   assert.deepEqual(getVisibleAlbums([], defaults), []);
+});
+
+const dividerAlbums = Object.freeze([
+  album("zebra", "Zebra", "North", "CD", "1990"),
+  album("apple", "Apple", "North", "CD", "2003"),
+  album("afterglow", "afterglow", "North", "CD", "1995"),
+  album("number", "7 Steps", "North", "CD", "1992"),
+  album("accent", "  Élan", "South", "Cassette", "2000"),
+  album("symbol", "#Live", "North", "Vinyl (12-inch LP)", "2004"),
+  album("emoji", "🎵 Mixtape", "North", "CD", "2005"),
+  album("non-latin", "夜", "North", "CD", "2006"),
+  album("blank", " ", "North", "CD", "2007")
+]);
+
+function dividedIds(options = {}) {
+  const view = { ...defaults, ...options };
+  return groupVisibleAlbums(getVisibleAlbums(dividerAlbums, view), view.sort)
+    ?.map(({ heading, albums }) => [heading, albums.map(album => album.id)]);
+}
+
+test("groups only populated headings, folds accents, and puts other titles under #", () => {
+  assert.deepEqual(dividedIds(), [
+    ["A", ["apple", "afterglow"]],
+    ["E", ["accent"]],
+    ["Z", ["zebra"]],
+    ["#", ["number", "symbol", "emoji", "non-latin", "blank"]]
+  ]);
+});
+
+test("preserves alphabetical direction within each heading and reverses letter order", () => {
+  const selection = { query: "north", format: "CD" };
+  assert.deepEqual(dividedIds({ ...selection, sort: "title-asc" }).slice(0, 2), [
+    ["A", ["afterglow", "apple"]], ["Z", ["zebra"]]
+  ]);
+  assert.deepEqual(dividedIds({ ...selection, sort: "title-desc" }).slice(0, 2), [
+    ["Z", ["zebra"]], ["A", ["apple", "afterglow"]]
+  ]);
+  for (const sort of ["title-asc", "title-desc"]) {
+    assert.equal(dividedIds({ ...selection, sort }).at(-1)[0], "#");
+  }
+});
+
+test("groups only the search and format matches, including no matches", () => {
+  assert.deepEqual(dividedIds({ query: "North", format: "Vinyl (12-inch LP)" }), [["#", ["symbol"]]]);
+  assert.deepEqual(dividedIds({ query: "North", format: "Cassette" }), []);
+  assert.deepEqual(groupVisibleAlbums([], "title-asc"), []);
+});
+
+test("pauses dividers in both year sorts so the chronological order stays intact", () => {
+  for (const sort of ["year-newest", "year-oldest"]) {
+    const visible = getVisibleAlbums(dividerAlbums, { ...defaults, sort });
+    assert.equal(groupVisibleAlbums(visible, sort), null);
+    assert.equal(visible[0].id, sort === "year-newest" ? "blank" : "zebra");
+  }
 });

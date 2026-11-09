@@ -4,7 +4,7 @@ import type { Profile } from "./types/Profile";
 import type { ArtworkChange } from "./artwork";
 import type { Album } from "./types/Album";
 import type { ToastData } from "./components/toast/Toast";
-import { resolveTheme, systemThemeQuery, themePreference, type ThemePreference } from "./settings";
+import { alphabeticalDividersPreference, resolveTheme, systemThemeQuery, themePreference, type ThemePreference } from "./settings";
 import "./App.css";
 
 import Sidebar from "./components/Sidebar/Sidebar";
@@ -20,6 +20,7 @@ import Settings from "./pages/Settings";
 function App() {
   const [activePage, setActivePage] = useState("Collection");
   const [theme, setTheme] = useState(themePreference.read);
+  const [alphabeticalDividers, setAlphabeticalDividers] = useState(() => alphabeticalDividersPreference.read() === "on");
 
   useLayoutEffect(() => {
     const systemTheme = window.matchMedia(systemThemeQuery);
@@ -38,6 +39,11 @@ function App() {
   function changeTheme(preference: ThemePreference) {
     themePreference.write(preference);
     setTheme(preference);
+  }
+
+  function changeAlphabeticalDividers(enabled: boolean) {
+    alphabeticalDividersPreference.write(enabled ? "on" : "off");
+    setAlphabeticalDividers(enabled);
   }
 
   const [profile, setProfile] = useState<Profile>({
@@ -173,6 +179,7 @@ function App() {
       <Collection
         profile={profile}
         albums={albums}
+        alphabeticalDividers={alphabeticalDividers}
         loadStatus={albumLoadStatus}
         onRetry={retryAlbums}
         onAdd={addAlbum}
@@ -197,7 +204,16 @@ function App() {
     Wishlist: <Wishlist profile={profile} />,
     Lists: <Lists profile={profile} />,
     Statistics: <Statistics profile={profile} />,
-    Settings: <Settings profile={profile} setProfile={setProfile} theme={theme} onThemeChange={changeTheme} />
+    Settings: (
+      <Settings
+        profile={profile}
+        setProfile={setProfile}
+        theme={theme}
+        onThemeChange={changeTheme}
+        alphabeticalDividers={alphabeticalDividers}
+        onAlphabeticalDividersChange={changeAlphabeticalDividers}
+      />
+    )
   };
 
   return (

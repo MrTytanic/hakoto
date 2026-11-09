@@ -119,9 +119,21 @@
   cursor: pointer;
 }
 
-.settings-theme-options input {
+.settings-theme-options input,
+.settings-checkbox input {
   margin: 0;
   accent-color: var(--focus);
+}
+
+.settings-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 32px;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
 }
 
 .settings-field p {
@@ -197,7 +209,8 @@
 .settings-upload:focus-within,
 .settings-remove:focus-visible,
 .settings-navigation button:focus-visible,
-.settings-theme-options input:focus-visible {
+.settings-theme-options input:focus-visible,
+.settings-checkbox input:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 3px;
 }

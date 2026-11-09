@@ -41,3 +41,25 @@ export function getVisibleAlbums(albums: readonly Album[], { query, format, sort
       return matches;
   }
 }
+
+export function groupVisibleAlbums(albums: readonly Album[], sort: CollectionSort) {
+  if (sort === "year-newest" || sort === "year-oldest") return null;
+
+  // Albums already reflect the active filters and sort order.
+  const buckets = new Map<string, Album[]>();
+  for (const album of albums) {
+    const initial = album.title.trimStart().normalize("NFD").match(/^[a-z]/i)?.[0];
+    const heading = initial?.toUpperCase() ?? "#";
+    const group = buckets.get(heading);
+    if (group) group.push(album);
+    else buckets.set(heading, [album]);
+  }
+
+  const other = buckets.get("#");
+  buckets.delete("#");
+  const groups = Array.from(buckets, ([heading, albums]) => ({ heading, albums }));
+  groups.sort((a, b) => a.heading.charCodeAt(0) - b.heading.charCodeAt(0));
+  if (sort === "title-desc") groups.reverse();
+  if (other) groups.push({ heading: "#", albums: other });
+  return groups;
+}
