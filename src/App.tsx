@@ -8,7 +8,7 @@ import "./App.css";
 
 import Sidebar from "./components/Sidebar/Sidebar";
 import Toast from "./components/toast/Toast";
-import Collection from "./pages/Collection";
+import Collection, { CollectionLoadError, type AlbumLoadStatus } from "./pages/Collection";
 import Shelves from "./pages/Shelves";
 import Favorites from "./pages/Favorites";
 import Wishlist from "./pages/Wishlist";
@@ -25,7 +25,8 @@ function App() {
   });
 
   const [albums, setAlbums] = useState<Album[]>([]);
-  const [isLoadingAlbums, setIsLoadingAlbums] = useState(true);
+  const [albumLoadStatus, setAlbumLoadStatus] = useState<AlbumLoadStatus>("loading");
+  const [albumLoadAttempt, setAlbumLoadAttempt] = useState(0);
 
   // Notifications
   const [notifications, setNotifications] = useState<ToastData[]>([]);
@@ -75,16 +76,13 @@ function App() {
 
         if (!cancelled) {
           setAlbums(savedAlbums);
+          setAlbumLoadStatus("ready");
         }
       } catch (error) {
         console.error("Failed to load albums:", error);
 
         if (!cancelled) {
-          notify("Failed to load your saved albums.", "error");
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoadingAlbums(false);
+          setAlbumLoadStatus("error");
         }
       }
     }
@@ -94,7 +92,12 @@ function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [albumLoadAttempt]);
+
+  function retryAlbums() {
+    setAlbumLoadStatus("loading");
+    setAlbumLoadAttempt(attempt => attempt + 1);
+  }
 
   // Cleanup previous profile pictures.
   useEffect(() => {
@@ -149,6 +152,8 @@ function App() {
       <Collection
         profile={profile}
         albums={albums}
+        loadStatus={albumLoadStatus}
+        onRetry={retryAlbums}
         onAdd={addAlbum}
         onUpdate={updateAlbum}
         onDelete={deleteAlbum}
@@ -158,7 +163,7 @@ function App() {
 
     Shelves: <Shelves profile={profile} />,
 
-    Favorites: (
+    Favorites: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
       <Favorites
         profile={profile}
         albums={albums}
@@ -182,7 +187,7 @@ function App() {
       />
 
       <main className="main-content">
-        {isLoadingAlbums ? (
+        {activePage !== "Collection" && albumLoadStatus === "loading" ? (
           <div role="status" aria-live="polite">
             Loading your collection...
           </div>
