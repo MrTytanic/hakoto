@@ -1,12 +1,31 @@
-use std::{fs, io, path::Path};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    error::Error,
+    fs, io,
+    path::Path,
+};
 
-use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
 use crate::artwork;
 
-pub fn initialize_database(path: &Path) -> rusqlite::Result<Connection> {
-    let connection = Connection::open(path)?;
-    connection.execute_batch(
+const LEGACY_DATABASE_NAME: &str = "sleevy.db";
+const INSERT_ALBUM: &str = "INSERT INTO albums
+    (id, title, artist, format, release_year, artwork, favorite)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+
+pub fn initialize_database(
+    app_dir: &Path,
+    legacy_dir: Option<&Path>,
+) -> Result<Connection, Box<dyn Error>> {
+    let mut connection = Connection::open(app_dir.join("hakoto.db"))?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+    let already_initialized: bool = transaction.query_row(
+        "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'albums')",
+        [],
+        |row| row.get(0),
+    )?;
+    transaction.execute_batch(
         r"
         CREATE TABLE IF NOT EXISTS albums (
             id TEXT PRIMARY KEY,
@@ -21,7 +40,45 @@ pub fn initialize_database(path: &Path) -> rusqlite::Result<Connection> {
         ",
     )?;
 
+    // Commit the table and its imported rows together so a failed import can be retried.
+    if !already_initialized && let Some(legacy_dir) = legacy_dir {
+        import_legacy_albums(&transaction, app_dir, legacy_dir)?;
+    }
+    transaction.commit()?;
     Ok(connection)
+}
+
+fn import_legacy_albums(
+    destination: &Connection,
+    app_dir: &Path,
+    legacy_dir: &Path,
+) -> Result<(), Box<dyn Error>> {
+    let legacy_path = legacy_dir.join(LEGACY_DATABASE_NAME);
+    if !legacy_path.try_exists()? {
+        return Ok(());
+    }
+
+    let mut source = Connection::open_with_flags(legacy_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let snapshot = source.transaction()?;
+    let mut imported_artwork = HashMap::new();
+    for mut album in get_albums(&snapshot)? {
+        if let Some(name) = album.artwork.take() {
+            let migrated = match imported_artwork.entry(name) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    let filename = match artwork::read_checked(legacy_dir, entry.key()) {
+                        Ok(bytes) => Some(store_artwork(destination, app_dir, &bytes)?),
+                        Err(error) if error.kind() == io::ErrorKind::NotFound => None,
+                        Err(error) => return Err(error.into()),
+                    };
+                    entry.insert(filename)
+                }
+            };
+            album.artwork = migrated.clone();
+        }
+        write_album(destination, INSERT_ALBUM, &album)?;
+    }
+    Ok(())
 }
 
 #[derive(serde::Deserialize, serde::Serialize)]
@@ -114,38 +171,20 @@ fn store_album(
         None => previous.clone(),
         Some(ArtworkChange::Remove) => None,
         Some(ArtworkChange::Replace(bytes)) => {
-            let name: String = transaction
-                .query_row("SELECT lower(hex(randomblob(16))) || '.webp'", [], |row| {
-                    row.get(0)
-                })
-                .map_err(|error| error.to_string())?;
-            artwork::write(app_dir, &name, &bytes).map_err(|error| error.to_string())?;
+            let name =
+                store_artwork(&transaction, app_dir, &bytes).map_err(|error| error.to_string())?;
             new_file = Some(name.clone());
             Some(name)
         }
     };
 
     let sql = if insert {
-        "INSERT INTO albums (id, title, artist, format, release_year, artwork, favorite)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)"
+        INSERT_ALBUM
     } else {
         "UPDATE albums SET title = ?2, artist = ?3, format = ?4, release_year = ?5,
                            artwork = ?6, favorite = ?7 WHERE id = ?1"
     };
-    let result = transaction
-        .execute(
-            sql,
-            params![
-                album.id,
-                album.title,
-                album.artist,
-                album.format,
-                album.release_year,
-                album.artwork,
-                album.favorite,
-            ],
-        )
-        .and_then(|_| transaction.commit());
+    let result = write_album(&transaction, sql, &album).and_then(|_| transaction.commit());
 
     if let Err(error) = result {
         // The transaction has rolled back. Check references even if commit reported an error.
@@ -156,6 +195,34 @@ fn store_album(
         cleanup(connection, app_dir, previous.as_deref());
     }
     Ok(album)
+}
+
+fn store_artwork(
+    connection: &Connection,
+    app_dir: &Path,
+    bytes: &[u8],
+) -> Result<String, Box<dyn Error>> {
+    let name: String =
+        connection.query_row("SELECT lower(hex(randomblob(16))) || '.webp'", [], |row| {
+            row.get(0)
+        })?;
+    artwork::write(app_dir, &name, bytes)?;
+    Ok(name)
+}
+
+fn write_album(connection: &Connection, sql: &str, album: &Album) -> rusqlite::Result<usize> {
+    connection.execute(
+        sql,
+        params![
+            album.id,
+            album.title,
+            album.artist,
+            album.format,
+            album.release_year,
+            album.artwork,
+            album.favorite,
+        ],
+    )
 }
 
 pub fn delete_album(
@@ -266,7 +333,7 @@ mod tests {
                 .unwrap()
                 .query_row("SELECT lower(hex(randomblob(16)))", [], |row| row.get(0))
                 .unwrap();
-            let path = std::env::temp_dir().join(format!("sleevy-test-{name}"));
+            let path = std::env::temp_dir().join(format!("hakoto-test-{name}"));
             fs::create_dir(&path).unwrap();
             Self(path)
         }
@@ -291,11 +358,55 @@ mod tests {
     }
 
     #[test]
+    fn renamed_app_imports_existing_collection_once_and_can_retry() {
+        let legacy = TestDirectory::new();
+        let current = TestDirectory::new();
+        let mut source = initialize_database(&legacy.0, None).unwrap();
+        let mut favorite = album("cover");
+        favorite.favorite = true;
+        let original = save_album(&mut source, &legacy.0, favorite, Some(COVER.to_vec()))
+            .unwrap()
+            .artwork
+            .unwrap();
+        save_album(&mut source, &legacy.0, album("plain"), None).unwrap();
+        let legacy_database = legacy.0.join(LEGACY_DATABASE_NAME);
+        source
+            .execute("VACUUM INTO ?1", [legacy_database.to_str().unwrap()])
+            .unwrap();
+        drop(source);
+
+        // A failed artwork write must leave the new database eligible for another import.
+        let artwork_path = current.0.join("artwork");
+        fs::write(&artwork_path, b"directory unavailable").unwrap();
+        assert!(initialize_database(&current.0, Some(&legacy.0)).is_err());
+        fs::remove_file(artwork_path).unwrap();
+
+        let mut destination = initialize_database(&current.0, Some(&legacy.0)).unwrap();
+        let albums = get_albums(&destination).unwrap();
+        assert_eq!(albums.len(), 2);
+        assert_eq!(albums[0].id, "cover");
+        assert_eq!(albums[0].release_year, "1999");
+        assert!(albums[0].favorite);
+        assert_eq!(
+            artwork::read(&current.0, albums[0].artwork.as_deref().unwrap()).as_deref(),
+            Some(COVER)
+        );
+        assert!(albums[1].artwork.is_none());
+        assert_eq!(artwork::read(&legacy.0, &original).as_deref(), Some(COVER));
+        assert!(legacy_database.is_file());
+
+        delete_album(&mut destination, &current.0, "cover").unwrap();
+        delete_album(&mut destination, &current.0, "plain").unwrap();
+        drop(destination);
+        let reopened = initialize_database(&current.0, Some(&legacy.0)).unwrap();
+        assert!(get_albums(&reopened).unwrap().is_empty());
+    }
+
+    #[test]
     fn artwork_survives_reopening_and_is_cleaned_after_replacement_and_deletion() {
         let directory = TestDirectory::new();
         let app_dir = &directory.0;
-        let db_path = app_dir.join("sleevy.db");
-        let mut db = initialize_database(&db_path).unwrap();
+        let mut db = initialize_database(app_dir, None).unwrap();
         let original = save_album(&mut db, app_dir, album("cover"), Some(COVER.to_vec()))
             .unwrap()
             .artwork
@@ -308,7 +419,7 @@ mod tests {
         .unwrap();
         drop(db);
 
-        let mut db = initialize_database(&db_path).unwrap();
+        let mut db = initialize_database(app_dir, None).unwrap();
         let albums = get_albums(&db).unwrap();
         assert_eq!(albums[0].artwork.as_deref(), Some(original.as_str()));
         assert_eq!(artwork::read(app_dir, &original).as_deref(), Some(COVER));
@@ -357,7 +468,7 @@ mod tests {
     fn failed_mutations_preserve_existing_artwork_and_remove_unreferenced_files() {
         let directory = TestDirectory::new();
         let app_dir = &directory.0;
-        let mut db = initialize_database(&app_dir.join("sleevy.db")).unwrap();
+        let mut db = initialize_database(app_dir, None).unwrap();
         let original = save_album(&mut db, app_dir, album("cover"), Some(COVER.to_vec()))
             .unwrap()
             .artwork
@@ -403,6 +514,6 @@ mod tests {
         assert!(!artwork::validate(&vec![0; 1024 * 1024 + 1]));
         let directory = TestDirectory::new();
         assert!(artwork::write(&directory.0, "../outside.webp", COVER).is_err());
-        assert!(artwork::read(&directory.0, "../sleevy.db").is_none());
+        assert!(artwork::read(&directory.0, "../hakoto.db").is_none());
     }
 }

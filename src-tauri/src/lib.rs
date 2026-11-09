@@ -84,7 +84,12 @@ pub fn run() {
             let app_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&app_dir)?;
 
-            let mut connection = database::initialize_database(&app_dir.join("sleevy.db"))?;
+            let legacy_dir = (app.config().identifier == "com.hakoto.app")
+                .then(|| app_dir.with_file_name("com.sleevy.app"));
+            let mut connection = database::initialize_database(&app_dir, legacy_dir.as_deref())
+                .map_err(|error| {
+                    std::io::Error::other(format!("Could not open the collection: {error}"))
+                })?;
             if let Err(error) = fs::create_dir_all(app_dir.join("artwork")) {
                 eprintln!("Could not create artwork directory: {error}");
             }

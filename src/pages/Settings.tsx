@@ -32,7 +32,7 @@ function Settings({ profile, setProfile }: SettingsProps) {
         <ProfileHeader
           profile={profile}
           title="Settings"
-          description="Manage your preferences and personalize Sleevy."
+          description="Manage your preferences and personalize Hakoto."
         />
       </div>
 

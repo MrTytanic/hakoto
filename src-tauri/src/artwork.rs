@@ -107,20 +107,34 @@ pub fn write(app_dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
 }
 
 pub fn read(app_dir: &Path, name: &str) -> Option<Vec<u8>> {
+    read_checked(app_dir, name).ok()
+}
+
+pub fn read_checked(app_dir: &Path, name: &str) -> io::Result<Vec<u8>> {
     if !is_filename(name) {
-        return None;
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Invalid artwork filename",
+        ));
     }
 
-    let path = directory(app_dir).ok()?.join(name);
-    if !path.symlink_metadata().ok()?.is_file() || path.canonicalize().ok()? != path {
-        return None;
+    let path = directory(app_dir)?.join(name);
+    if !path.symlink_metadata()?.is_file() || path.canonicalize()? != path {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid artwork path",
+        ));
     }
 
     let mut bytes = Vec::new();
-    File::open(path)
-        .ok()?
+    File::open(path)?
         .take(MAX_BYTES as u64 + 1)
-        .read_to_end(&mut bytes)
-        .ok()?;
-    validate(&bytes).then_some(bytes)
+        .read_to_end(&mut bytes)?;
+    if !validate(&bytes) {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Invalid WebP artwork",
+        ));
+    }
+    Ok(bytes)
 }

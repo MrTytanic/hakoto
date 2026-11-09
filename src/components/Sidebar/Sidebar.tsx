@@ -31,7 +31,7 @@ function Sidebar({ activePage, setActivePage }: SidebarProps) {
         {isExpanded && (
           <div className="sidebar-brand">
             <Disc3 size={23} strokeWidth={1.8} />
-            <span className="sidebar-logo">sleevy</span>
+            <span className="sidebar-logo">hakoto</span>
           </div>
         )}
 
