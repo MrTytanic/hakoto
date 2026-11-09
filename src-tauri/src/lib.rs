@@ -1,4 +1,4 @@
-// Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+use tauri::Manager;
 mod database;
 
 #[tauri::command]
@@ -11,13 +11,17 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![greet])
-        .setup(|_app| {
-            let result = database::initialize_database();
+        .setup(|app| {
+            let app_dir = app.path().app_data_dir()?;
+            std::fs::create_dir_all(&app_dir)?;
 
-            match result {
-                Ok(_connection) => println!("Successful Connection"),
-                Err(error) => println!("Error: {}", error),
-            }
+            let database_path = app_dir.join("sleevy.db");
+            println!("Database path: {}", database_path.display());
+
+            let _connection = database::initialize_database(&database_path)?;
+
+            println!("Successful Connection");
+
             Ok(())
         })
         .run(tauri::generate_context!())
