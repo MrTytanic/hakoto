@@ -1,7 +1,7 @@
 
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Plus, Disc3, X, UserRound } from "lucide-react";
+import { AlertCircle, ChevronDown, Disc3, Plus, Search, UserRound, X } from "lucide-react";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
@@ -12,18 +12,37 @@ import { ArtworkPicker } from "../components/Artwork";
 import { encodeArtwork, type ArtworkChange } from "../artwork";
 import "./Collection.css";
 
+export type AlbumLoadStatus = "loading" | "ready" | "error";
+
 type CollectionProps = {
   profile: Profile;
   albums: Album[];
+  loadStatus: AlbumLoadStatus;
+  onRetry: () => void;
   onAdd: (album: Album) => void;
   onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onNotify?: (message: string, type: "success" | "error") => void;
 };
 
+export function CollectionLoadError({ onRetry }: { onRetry: () => void }) {
+  return (
+    <div className="collection-empty">
+      <AlertCircle size={42} strokeWidth={1.2} aria-hidden="true" />
+      <div role="alert">
+        <h2>Couldn’t load your collection</h2>
+        <p>Try loading your saved albums again.</p>
+      </div>
+      <button type="button" onClick={onRetry}>Try again</button>
+    </div>
+  );
+}
+
 function Collection({
   profile,
   albums,
+  loadStatus,
+  onRetry,
   onAdd,
   onUpdate,
   onDelete,
@@ -33,6 +52,7 @@ function Collection({
   const [formatFilter, setFormatFilter] = useState("");
   const [sort, setSort] = useState<CollectionSort>("collection");
   const searchRef = useRef<HTMLInputElement>(null);
+  const statusRef = useRef<HTMLParagraphElement>(null);
   const visibleAlbums = useMemo(
     () => getVisibleAlbums(albums, { query, format: formatFilter, sort }),
     [albums, query, formatFilter, sort]
@@ -52,6 +72,11 @@ function Collection({
   const savingRef = useRef(false);
 
   const selectedAlbum = albums.find(album => album.id === selectedId);
+  const controlsDisabled = loadStatus !== "ready" || albums.length === 0;
+  const hasFilters = Boolean(query || formatFilter || sort !== "collection");
+  const resultCount = visibleAlbums.length === albums.length
+    ? `${albums.length} ${albums.length === 1 ? "album" : "albums"}`
+    : `${visibleAlbums.length} of ${albums.length} albums`;
 
   function clearSearch() {
     setQuery("");
@@ -142,6 +167,7 @@ function Collection({
         <button
           type="button"
           className="collection-add"
+          disabled={loadStatus !== "ready"}
           onClick={() => setIsModalOpen(true)}
         >
           <Plus size={17} />
@@ -149,20 +175,22 @@ function Collection({
         </button>
       </div>
 
-      {albums.length > 0 && (
-        <section className="collection-tools" aria-label="Collection search and filters">
+      <section className="collection-tools" aria-label="Collection search and filters">
+        <div className="collection-primary-tools">
           <div className="album-form-field collection-search">
             <label htmlFor="collection-search">Search albums</label>
             <div className="collection-search-input">
+              <Search className="collection-search-icon" size={16} aria-hidden="true" />
               <input
                 id="collection-search"
                 type="search"
                 ref={searchRef}
                 value={query}
+                disabled={controlsDisabled}
                 onChange={e => setQuery(e.target.value)}
                 placeholder="Title or artist"
               />
-              {query && (
+              {query && !controlsDisabled && (
                 <button type="button" aria-label="Clear search" onClick={clearSearch}>
                   <X size={16} aria-hidden="true" />
                 </button>
@@ -171,16 +199,13 @@ function Collection({
           </div>
 
           <div className="album-form-field">
-            <label htmlFor="collection-format">Format</label>
-            <select id="collection-format" value={formatFilter} onChange={e => setFormatFilter(e.target.value)}>
-              <option value="">All formats</option>
-              {albumFormats.map(item => <option key={item}>{item}</option>)}
-            </select>
-          </div>
-
-          <div className="album-form-field">
             <label htmlFor="collection-sort">Sort by</label>
-            <select id="collection-sort" value={sort} onChange={e => setSort(e.target.value as CollectionSort)}>
+            <select
+              id="collection-sort"
+              value={sort}
+              disabled={controlsDisabled}
+              onChange={e => setSort(e.target.value as CollectionSort)}
+            >
               <option value="collection">Date added</option>
               <option value="title-asc">Title A–Z</option>
               <option value="title-desc">Title Z–A</option>
@@ -188,18 +213,51 @@ function Collection({
               <option value="year-oldest">Release year (oldest)</option>
             </select>
           </div>
+        </div>
 
-          <button type="button" className="album-cancel collection-reset" onClick={resetFilters}>
-            Reset filters
-          </button>
-
-          <p className="collection-result-count" role="status">
-            {visibleAlbums.length} {visibleAlbums.length === 1 ? "album" : "albums"}
+        <div className="collection-secondary-tools">
+          <p className="collection-result-count" role="status" tabIndex={-1} ref={statusRef}>
+            {loadStatus === "loading" ? "Loading your albums…" : loadStatus === "ready" ? resultCount : null}
           </p>
-        </section>
-      )}
 
-      {albums.length === 0 ? (
+          <details className="collection-filters" inert={controlsDisabled}>
+            <summary>
+              Filters{formatFilter && <span> · {formatFilter}</span>}
+              <ChevronDown size={14} aria-hidden="true" />
+            </summary>
+            <div className="collection-filter-panel">
+              <div className="album-form-field">
+                <label htmlFor="collection-format">Format</label>
+                <select id="collection-format" value={formatFilter} onChange={e => setFormatFilter(e.target.value)}>
+                  <option value="">All formats</option>
+                  {albumFormats.map(item => <option key={item}>{item}</option>)}
+                </select>
+              </div>
+              <button type="button" className="album-cancel" disabled={!hasFilters} onClick={resetFilters}>
+                Reset filters
+              </button>
+            </div>
+          </details>
+        </div>
+      </section>
+
+      {loadStatus === "loading" ? (
+        <div className="album-grid" aria-hidden="true">
+          {Array.from({ length: 8 }, (_, index) => (
+            <div key={index} className="album-card album-skeleton">
+              <div className="album-artwork" />
+              <div className="album-skeleton-line" />
+              <div className="album-skeleton-line" />
+              <div className="album-skeleton-line" />
+            </div>
+          ))}
+        </div>
+      ) : loadStatus === "error" ? (
+        <CollectionLoadError onRetry={() => {
+          statusRef.current?.focus();
+          onRetry();
+        }} />
+      ) : albums.length === 0 ? (
         <div className="collection-empty">
           <Disc3 size={42} strokeWidth={1.2} />
           <h2>Your collection is empty</h2>
@@ -215,6 +273,7 @@ function Collection({
           <Disc3 size={42} strokeWidth={1.2} aria-hidden="true" />
           <h2>No matching albums</h2>
           <p>Try a different title, artist, or format.</p>
+          <button type="button" onClick={resetFilters}>Show all albums</button>
         </div>
       ) : (
         <div className="album-grid">
