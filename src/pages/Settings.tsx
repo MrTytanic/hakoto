@@ -10,6 +10,8 @@ type SettingsProps = {
   setProfile: Dispatch<SetStateAction<Profile>>;
   theme: ThemePreference;
   onThemeChange: (theme: ThemePreference) => void;
+  alphabeticalDividers: boolean;
+  onAlphabeticalDividersChange: (enabled: boolean) => void;
 };
 
 const sections = [
@@ -96,7 +98,9 @@ function ProfileSettings({ profile, setProfile }: Pick<SettingsProps, "profile" 
   );
 }
 
-function Settings({ profile, setProfile, theme, onThemeChange }: SettingsProps) {
+function Settings({
+  profile, setProfile, theme, onThemeChange, alphabeticalDividers, onAlphabeticalDividersChange
+}: SettingsProps) {
   const [section, setSection] = useState<(typeof sections)[number]>(sections[0]);
 
   return (
@@ -156,7 +160,18 @@ function Settings({ profile, setProfile, theme, onThemeChange }: SettingsProps) 
 
         {section.title === "Collection" && (
           <div className="settings-card">
-            <p>Search by title or artist, change the sort order, and filter by physical format on the Collection page.</p>
+            <label className="settings-checkbox">
+              <input
+                type="checkbox"
+                checked={alphabeticalDividers}
+                aria-describedby="alphabetical-dividers-help"
+                onChange={e => onAlphabeticalDividersChange(e.currentTarget.checked)}
+              />
+              Alphabetical Dividers
+            </label>
+            <p id="alphabetical-dividers-help">
+              Group albums by the first letter of their title. Sorting by release year temporarily hides the dividers.
+            </p>
           </div>
         )}
 

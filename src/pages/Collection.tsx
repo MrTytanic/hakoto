@@ -5,7 +5,7 @@ import { AlertCircle, ChevronDown, Disc3, Plus, Search, UserRound, X } from "luc
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
-import { getVisibleAlbums, type CollectionSort } from "../collectionView";
+import { getVisibleAlbums, groupVisibleAlbums, type CollectionSort } from "../collectionView";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import { ArtworkPicker } from "../components/Artwork";
@@ -17,6 +17,7 @@ export type AlbumLoadStatus = "loading" | "ready" | "error";
 type CollectionProps = {
   profile: Profile;
   albums: Album[];
+  alphabeticalDividers: boolean;
   loadStatus: AlbumLoadStatus;
   onRetry: () => void;
   onAdd: (album: Album) => void;
@@ -41,6 +42,7 @@ export function CollectionLoadError({ onRetry }: { onRetry: () => void }) {
 function Collection({
   profile,
   albums,
+  alphabeticalDividers,
   loadStatus,
   onRetry,
   onAdd,
@@ -57,6 +59,11 @@ function Collection({
     () => getVisibleAlbums(albums, { query, format: formatFilter, sort }),
     [albums, query, formatFilter, sort]
   );
+  const albumGroups = useMemo(
+    () => alphabeticalDividers ? groupVisibleAlbums(visibleAlbums, sort) : null,
+    [alphabeticalDividers, visibleAlbums, sort]
+  );
+  const dividersPaused = alphabeticalDividers && albumGroups === null;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -145,6 +152,16 @@ function Collection({
     notify(`"${album.title}" added to your collection.`, "success");
   }
 
+  function renderAlbumGrid(items: readonly Album[]) {
+    return (
+      <div className="album-grid">
+        {items.map(album => (
+          <AlbumCard key={album.id} album={album} onClick={() => setSelectedId(album.id)} />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="collection-page">
       <div className="collection-top">
@@ -204,6 +221,7 @@ function Collection({
               id="collection-sort"
               value={sort}
               disabled={controlsDisabled}
+              aria-describedby={dividersPaused ? "collection-dividers-paused" : undefined}
               onChange={e => setSort(e.target.value as CollectionSort)}
             >
               <option value="collection">Date added</option>
@@ -239,6 +257,12 @@ function Collection({
             </div>
           </details>
         </div>
+
+        {dividersPaused && (
+          <p id="collection-dividers-paused" className="collection-divider-note">
+            Alphabetical dividers are hidden while sorting by release year.
+          </p>
+        )}
       </section>
 
       {loadStatus === "loading" ? (
@@ -275,17 +299,21 @@ function Collection({
           <p>Try a different title, artist, or format.</p>
           <button type="button" onClick={resetFilters}>Show all albums</button>
         </div>
-      ) : (
-        <div className="album-grid">
-          {visibleAlbums.map(album => (
-            <AlbumCard
-              key={album.id}
-              album={album}
-              onClick={() => setSelectedId(album.id)}
-            />
-          ))}
+      ) : albumGroups ? (
+        <div className="collection-album-groups">
+          {albumGroups.map(({ heading, albums: group }) => {
+            const id = `collection-divider-${heading === "#" ? "other" : heading}`;
+            return (
+              <section key={heading} aria-labelledby={id}>
+                <h2 id={id} aria-label={heading === "#" ? "Numbers, symbols, and other titles" : undefined}>
+                  {heading}
+                </h2>
+                {renderAlbumGrid(group)}
+              </section>
+            );
+          })}
         </div>
-      )}
+      ) : renderAlbumGrid(visibleAlbums)}
 
       {selectedAlbum && (
         <AlbumDetails

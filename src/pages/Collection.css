@@ -261,6 +261,26 @@
 }
 
 /* Album grid */
+.collection-tools .collection-divider-note {
+  margin-top: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.collection-album-groups {
+  display: grid;
+  gap: 24px;
+}
+
+.collection-album-groups h2 {
+  margin: 0 0 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-subtle);
+  color: var(--text-strong);
+  font-size: 16px;
+  font-weight: 600;
+}
+
 .album-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(min(100%, 150px), 1fr));

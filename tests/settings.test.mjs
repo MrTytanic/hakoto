@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
+import { alphabeticalDividersPreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
 
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const bootstrap = index.match(/<script>([\s\S]*?)<\/script>/);
@@ -44,6 +44,21 @@ test("only System follows the device appearance", () => {
     assert.equal(resolveTheme("light", systemIsDark), "light");
     assert.equal(resolveTheme("system", systemIsDark), systemIsDark ? "dark" : "light");
   }
+});
+
+test("alphabetical dividers default off and save either toggle state independently of theme", t => {
+  const entries = new Map([["hakoto.theme", "light"]]);
+  useStorage(t, { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) });
+
+  assert.equal(alphabeticalDividersPreference.read(), "off");
+  for (const value of ["on", "off"]) {
+    alphabeticalDividersPreference.write(value);
+    assert.equal(entries.get("hakoto.alphabeticalDividers"), value);
+    assert.equal(alphabeticalDividersPreference.read(), value);
+  }
+  assert.equal(themePreference.read(), "light");
+  entries.set("hakoto.alphabeticalDividers", "invalid");
+  assert.equal(alphabeticalDividersPreference.read(), "off");
 });
 
 test("startup sets the saved palette before styles and uses the same System resolution", () => {

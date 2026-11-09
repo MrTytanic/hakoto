@@ -18,10 +18,11 @@ after(async () => {
   await vite?.close();
 });
 
-function render(loadStatus, albums = []) {
+function render(loadStatus, albums = [], alphabeticalDividers = false) {
   return renderToStaticMarkup(createElement(Collection, {
     profile: { displayName: "", profilePicture: null },
     albums,
+    alphabeticalDividers,
     loadStatus,
     onRetry() {},
     onAdd() {},
@@ -65,4 +66,16 @@ test("shows loaded albums, with search and sort before the collapsed format disc
   assert.match(html, /role="status"[^>]*>1 album/);
   assert.match(html, /<h3 title="Test Album">Test Album<\/h3>/);
   assert.doesNotMatch(html, /album-skeleton|Try again|Your collection is empty/);
+});
+
+test("renders accessible headings and the existing card grid when dividers are enabled", () => {
+  const albums = ["Zebra", "7 Steps"].map((title, id) => ({
+    id: String(id), title, artist: "Test Artist", format: "CD",
+    releaseYear: "2000", artwork: null, favorite: false
+  }));
+  const html = render("ready", albums, true);
+  assert.match(html, /<section aria-labelledby="collection-divider-Z"><h2 id="collection-divider-Z">Z<\/h2><div class="album-grid">/);
+  assert.match(html, /<h2 id="collection-divider-other" aria-label="Numbers, symbols, and other titles">#<\/h2>/);
+  assert.doesNotMatch(render("ready", albums), /collection-divider-Z|collection-divider-other/);
+  assert.doesNotMatch(render("ready", [], true), /collection-album-groups/);
 });
