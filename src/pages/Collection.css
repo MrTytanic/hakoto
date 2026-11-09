@@ -74,6 +74,71 @@
   background: #ffffff;
 }
 
+/* Search and filters */
+.collection-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 12px;
+  margin-bottom: 20px;
+}
+
+.collection-tools .album-form-field {
+  flex: 1 1 160px;
+  min-width: 0;
+  margin: 0;
+}
+
+.collection-tools .collection-search {
+  flex: 2 1 240px;
+}
+
+.collection-search-input {
+  position: relative;
+}
+
+.collection-search-input input[type="search"] {
+  padding-inline-end: 44px;
+}
+
+.collection-search-input input::-webkit-search-cancel-button {
+  display: none;
+}
+
+.collection-search-input button {
+  position: absolute;
+  inset-block: 4px;
+  inset-inline-end: 4px;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: #a1a1aa;
+}
+
+.collection-search-input button:hover {
+  background: #29292e;
+  color: #f4f4f5;
+}
+
+.collection-tools button:focus-visible {
+  outline: 2px solid #818cf8;
+  outline-offset: 2px;
+}
+
+.collection-reset {
+  min-height: 40px;
+}
+
+.collection-tools .collection-result-count {
+  flex-basis: 100%;
+  color: #a1a1aa;
+  font-size: 13px;
+}
+
 /* Empty state */
 .collection-empty {
   display: flex;
