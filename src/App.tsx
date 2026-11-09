@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Profile } from "./types/Profile";
 import type { ArtworkChange } from "./artwork";
 import type { Album } from "./types/Album";
 import type { ToastData } from "./components/toast/Toast";
+import { resolveTheme, systemThemeQuery, themePreference, type ThemePreference } from "./settings";
 import "./App.css";
 
 import Sidebar from "./components/Sidebar/Sidebar";
@@ -18,6 +19,26 @@ import Settings from "./pages/Settings";
 
 function App() {
   const [activePage, setActivePage] = useState("Collection");
+  const [theme, setTheme] = useState(themePreference.read);
+
+  useLayoutEffect(() => {
+    const systemTheme = window.matchMedia(systemThemeQuery);
+
+    function applyTheme() {
+      document.documentElement.dataset.theme = resolveTheme(theme, systemTheme.matches);
+    }
+
+    applyTheme();
+    if (theme === "system") {
+      systemTheme.addEventListener("change", applyTheme);
+      return () => systemTheme.removeEventListener("change", applyTheme);
+    }
+  }, [theme]);
+
+  function changeTheme(preference: ThemePreference) {
+    themePreference.write(preference);
+    setTheme(preference);
+  }
 
   const [profile, setProfile] = useState<Profile>({
     displayName: "",
@@ -176,7 +197,7 @@ function App() {
     Wishlist: <Wishlist profile={profile} />,
     Lists: <Lists profile={profile} />,
     Statistics: <Statistics profile={profile} />,
-    Settings: <Settings profile={profile} setProfile={setProfile} />
+    Settings: <Settings profile={profile} setProfile={setProfile} theme={theme} onThemeChange={changeTheme} />
   };
 
   return (

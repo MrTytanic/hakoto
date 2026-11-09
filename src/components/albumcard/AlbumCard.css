@@ -21,8 +21,8 @@
   aspect-ratio: 1;
   overflow: hidden;
   border-radius: 8px;
-  background: #29292e;
-  color: #71717a;
+  background: var(--surface-muted);
+  color: var(--text-subtle);
   transition: opacity .2s;
 }
 
@@ -31,7 +31,7 @@
 }
 
 .album-card:focus-visible {
-  outline: 2px solid #818cf8;
+  outline: 2px solid var(--focus);
   outline-offset: 4px;
   border-radius: 8px;
 }
@@ -45,7 +45,7 @@
 .album-card h3 {
   margin: 10px 0 4px;
   overflow: hidden;
-  color: #f4f4f5;
+  color: var(--text-strong);
   font-size: 14px;
   font-weight: 600;
   text-overflow: ellipsis;
@@ -55,12 +55,12 @@
 .album-card p {
   margin: 0 0 5px;
   overflow-wrap: anywhere;
-  color: #a1a1aa;
+  color: var(--text-muted);
   font-size: 13px;
 }
 
 .album-card span {
-  color: #71717a;
+  color: var(--text-subtle);
   font-size: 12px;
 }
 
@@ -68,6 +68,6 @@
   position: absolute;
   top: 10px;
   right: 10px;
-  color: #fca5a5;
-  filter: drop-shadow(0 1px 3px #141416);
+  color: var(--artwork-favorite);
+  filter: drop-shadow(0 1px 3px var(--artwork-shadow));
 }
