@@ -10,6 +10,7 @@ use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, pa
 use crate::{artwork, profile};
 
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
+pub const DATABASE_NAME: &str = "hakoto.db";
 const INSERT_ALBUM: &str = "INSERT INTO albums
     (id, title, artist, format, release_year, artwork, favorite)
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
@@ -18,7 +19,7 @@ pub fn initialize_database(
     app_dir: &Path,
     legacy_dir: Option<&Path>,
 ) -> Result<Connection, Box<dyn Error>> {
-    let mut connection = Connection::open(app_dir.join("hakoto.db"))?;
+    let mut connection = Connection::open(app_dir.join(DATABASE_NAME))?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let already_initialized: bool = transaction.query_row(
         "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'albums')",
@@ -326,8 +327,7 @@ mod tests {
     use super::*;
     use std::path::PathBuf;
 
-    // A 2 × 2 WebP image.
-    const COVER: &[u8] = b"RIFF\x38\0\0\0WEBPVP8 \x2c\0\0\0\x90\x01\0\x9d\x01\x2a\x02\0\x02\0\x02\0\x34\x25\xa0\x02\x74\xba\0\x03\x98\0\xfe\xf9\x93\x6f\xff\x90\x1f\xff\x90\x1f\xff\x90\x1f\xff\x20\x3f\xe2\x17\x7b\x20\x30\0";
+    use crate::artwork::TEST_WEBP as COVER;
 
     struct TestDirectory(PathBuf);
 

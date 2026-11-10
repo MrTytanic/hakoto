@@ -3,6 +3,7 @@ import { Upload, Trash2 } from "lucide-react";
 import ProfileHeader, { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile, ProfileLoadStatus } from "../types/Profile";
 import type { ThemePreference } from "../settings";
+import StorageSettings from "./StorageSettings";
 import "./Settings.css";
 
 type ProfileSettingsProps = {
@@ -186,11 +187,7 @@ function Settings({
           </div>
         )}
 
-        {section.title === "Storage" && (
-          <div className="settings-card">
-            <p>Your albums, artwork, and profile are stored locally on this device. Your preferences are also saved locally.</p>
-          </div>
-        )}
+        {section.title === "Storage" && <StorageSettings />}
       </section>
     </div>
   );

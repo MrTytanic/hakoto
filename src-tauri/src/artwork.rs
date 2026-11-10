@@ -7,6 +7,10 @@ use std::{
 const MAX_BYTES: usize = 1024 * 1024;
 const MAX_EDGE: u32 = 500;
 
+// A generated 2 × 2 WebP used by the persistence tests.
+#[cfg(test)]
+pub const TEST_WEBP: &[u8] = b"RIFF\x38\0\0\0WEBPVP8 \x2c\0\0\0\x90\x01\0\x9d\x01\x2a\x02\0\x02\0\x02\0\x34\x25\xa0\x02\x74\xba\0\x03\x98\0\xfe\xf9\x93\x6f\xff\x90\x1f\xff\x90\x1f\xff\x90\x1f\xff\x20\x3f\xe2\x17\x7b\x20\x30\0";
+
 pub fn is_filename(name: &str) -> bool {
     name.strip_suffix(".webp").is_some_and(|stem| {
         stem.len() == 32

@@ -7,7 +7,7 @@ use crate::{
     database::{ArtworkChange, image_filename},
 };
 
-const IMAGE_DIRECTORY: &str = "profile-images";
+pub const IMAGE_DIRECTORY: &str = "profile-images";
 
 pub fn initialize(connection: &Connection) -> rusqlite::Result<()> {
     connection.execute_batch(
