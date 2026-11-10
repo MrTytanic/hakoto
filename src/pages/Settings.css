@@ -221,9 +221,76 @@
 }
 
 .settings-upload:has(input:disabled),
+.settings-upload:disabled,
 .settings-remove:disabled {
   opacity: .6;
   cursor: default;
+}
+
+.storage-settings,
+.storage-path {
+  display: grid;
+  justify-items: start;
+  gap: 12px;
+  overflow-wrap: anywhere;
+}
+
+.storage-settings h3,
+.storage-usage,
+.storage-usage dd {
+  margin: 0;
+}
+
+.storage-settings h3 {
+  font-size: 14px;
+}
+
+.storage-path {
+  width: 100%;
+  padding-block: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.storage-breakdown {
+  display: flex;
+  width: 100%;
+  height: 9px;
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.storage-database { background: var(--focus); }
+.storage-artwork { background: var(--success); }
+.storage-profile { background: var(--text-secondary); }
+
+.storage-usage {
+  display: grid;
+  width: 100%;
+  gap: 6px;
+  font-size: 13px;
+}
+
+.storage-usage > div,
+.storage-usage dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.storage-usage > div {
+  justify-content: space-between;
+}
+
+.storage-usage dt span {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+}
+
+.storage-settings .storage-error {
+  color: var(--danger);
 }
 
 .settings-file-input {
