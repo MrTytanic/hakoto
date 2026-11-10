@@ -116,7 +116,7 @@ pub struct Shelf {
     pub settings: ShelfSettings,
 }
 
-#[derive(Debug, PartialEq, Eq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Placement {
     pub shelf_id: i64,
@@ -283,15 +283,30 @@ pub fn delete_shelf(connection: &Connection, id: i64) -> Result<usize> {
         .map_err(|error| error.to_string())
 }
 
+#[cfg(test)]
 pub fn update_placements(
     connection: &mut Connection,
     id: i64,
     changes: Vec<PlacementChange>,
 ) -> Result<Vec<Placement>> {
+    update_placements_checked(connection, id, changes, None)
+}
+
+pub fn update_placements_checked(
+    connection: &mut Connection,
+    id: i64,
+    changes: Vec<PlacementChange>,
+    expected: Option<Vec<Placement>>,
+) -> Result<Vec<Placement>> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
     let shelf = get_shelf(&transaction, id)?;
+    if let Some(expected) = expected
+        && placements(&transaction, id).map_err(|e| e.to_string())? != expected
+    {
+        return Err("The shelf has changed. Undo would overwrite a newer arrangement.".into());
+    }
     let mut slots = HashSet::new();
     {
         let mut set = transaction.prepare(
@@ -392,6 +407,45 @@ mod tests {
         connection
             .execute_batch("DROP TABLE shelf_placements; DROP TABLE shelves;")
             .unwrap();
+    }
+
+    #[test]
+    fn undo_rejects_changed_arrangements_and_restores_unchanged_slots_atomically() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        add_album(&mut db, directory.path(), "one");
+        let shelf = create_shelf(&db, settings("Shelf", 1, 2)).unwrap();
+        let after = update_placements(&mut db, shelf.id, vec![set(0, 1, "one")]).unwrap();
+        let expected = placements(&db, shelf.id).unwrap();
+        update_placements(&mut db, shelf.id, vec![set(0, 0, "one")]).unwrap();
+        assert!(
+            update_placements_checked(
+                &mut db,
+                shelf.id,
+                vec![PlacementChange::Clear { row: 0, column: 1 }],
+                Some(after)
+            )
+            .is_err()
+        );
+        assert_eq!(placements(&db, shelf.id).unwrap().len(), 2);
+        update_placements(
+            &mut db,
+            shelf.id,
+            vec![PlacementChange::Clear { row: 0, column: 0 }],
+        )
+        .unwrap();
+        let restored = update_placements_checked(
+            &mut db,
+            shelf.id,
+            vec![
+                set(0, 0, "one"),
+                PlacementChange::Clear { row: 0, column: 1 },
+            ],
+            Some(expected),
+        )
+        .unwrap();
+        assert_eq!(restored.len(), 1);
+        assert_eq!(restored[0].column, 0);
     }
 
     #[test]

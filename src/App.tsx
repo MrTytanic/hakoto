@@ -70,12 +70,17 @@ function App() {
   const [albums, setAlbums] = useState<Album[]>([]);
   const [albumLoadStatus, setAlbumLoadStatus] = useState<AlbumLoadStatus>("loading");
   const [albumLoadAttempt, setAlbumLoadAttempt] = useState(0);
+  const [shelfRevision, setShelfRevision] = useState(0);
 
   // Notifications
   const [notifications, setNotifications] = useState<ToastData[]>([]);
   const notificationTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const undoCleanup = useRef(new Map<string, () => Promise<void>>());
+  const undoBusy = useRef(new Set<string>());
+  const deletedUndoTokens = useRef(new Set<string>());
 
   function dismissNotification(id: string) {
+    if (undoBusy.current.has(id)) return;
     const timer = notificationTimers.current.get(id);
 
     if (timer !== undefined) {
@@ -84,6 +89,53 @@ function App() {
     }
 
     setNotifications(prev => prev.filter(item => item.id !== id));
+    const discard = undoCleanup.current.get(id);
+    undoCleanup.current.delete(id);
+    if (discard) void discard().catch(() => notify("Could not finish deletion cleanup. A recovery copy was retained.", "error"));
+  }
+
+  function notifyUndo(message: string, undo: () => Promise<void>, discard?: () => Promise<void>) {
+    const id = crypto.randomUUID();
+    setNotifications(prev => [...prev, { id, message, type: "success", undo }]);
+    if (discard) undoCleanup.current.set(id, discard);
+    notificationTimers.current.set(id, setTimeout(() => dismissNotification(id), 30000));
+  }
+
+  function offerDeletedUndo(token: string, title: string, position?: number) {
+    if (deletedUndoTokens.current.has(token)) return;
+    deletedUndoTokens.current.add(token);
+    notifyUndo(`"${title}" removed. Undo is available for 30 seconds.`, async () => {
+      const restored = await invoke<Album>("restore_deleted_album", { token });
+      setAlbums(prev => {
+        const next = [...prev];
+        next.splice(Math.max(0, Math.min(position ?? next.length, next.length)), 0, restored);
+        return next;
+      });
+    }, async () => {
+      await invoke("discard_deleted_album", { token });
+      deletedUndoTokens.current.delete(token);
+    });
+  }
+
+  async function undoNotification(id: string) {
+    const notification = notifications.find(item => item.id === id);
+    if (!notification?.undo || undoBusy.current.has(id)) return;
+    undoBusy.current.add(id);
+    clearTimeout(notificationTimers.current.get(id));
+    setNotifications(prev => prev.map(item => item.id === id ? { ...item, busy: true } : item));
+    try {
+      await notification.undo();
+      setShelfRevision(value => value + 1);
+      undoBusy.current.delete(id);
+      dismissNotification(id);
+    } catch (error) {
+      undoBusy.current.delete(id);
+      // A failed recovery must retain its durable snapshot for retry or the next startup.
+      undoCleanup.current.delete(id);
+      setNotifications(prev => prev.map(item => item.id === id ? { ...item, busy: false } : item));
+      notify(`Undo failed. Your current data is unchanged. ${String(error)}`, "error");
+      notificationTimers.current.set(id, setTimeout(() => dismissNotification(id), 30000));
+    }
   }
 
   function notify(message: string, type: "success" | "error" = "success") {
@@ -116,10 +168,12 @@ function App() {
     async function loadAlbums() {
       try {
         const savedAlbums = await invoke<Album[]>("get_albums");
+        const deleted = await invoke<{ token: string; title: string }[]>("get_deleted_albums");
 
         if (!cancelled) {
           setAlbums(savedAlbums);
           setAlbumLoadStatus("ready");
+          deleted.forEach(item => offerDeletedUndo(item.token, item.title));
         }
       } catch (error) {
         console.error("Failed to load albums:", error);
@@ -227,17 +281,12 @@ function App() {
     const album = albums.find(item => item.id === id);
 
     try {
-      const affectedRows = await invoke<number>("delete_album", { id });
-
-      if (affectedRows === 0) {
-        throw new Error("Album not found in database.");
-      }
+      const token = await invoke<string>("delete_album_recoverable", { id });
+      const position = albums.findIndex(item => item.id === id);
 
       setAlbums(prev => prev.filter(item => item.id !== id));
 
-      if (album) {
-        notify(`"${album.title}" removed from your collection.`, "success");
-      }
+      offerDeletedUndo(token, album?.title ?? "Album", position);
     } catch (error) {
       console.error("Failed to delete album:", error);
       notify("Failed to delete album. Please try again.", "error");
@@ -262,6 +311,8 @@ function App() {
 
     "Shelf Mode": (
       <Shelves
+        shelfRevision={shelfRevision}
+        onUndo={notifyUndo}
         profile={profile}
         albums={albums}
         alphabeticalDividers={alphabeticalDividers}
@@ -329,6 +380,7 @@ function App() {
       <Toast
         notifications={notifications}
         onDismiss={dismissNotification}
+        onUndo={id => { void undoNotification(id); }}
       />
     </div>
   );

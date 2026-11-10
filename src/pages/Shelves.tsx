@@ -7,7 +7,7 @@ import { ArtworkImage } from "../components/Artwork";
 import ProfileHeader from "../components/ProfileHeader";
 import ShelfDialog, { type ShelfDialogAction } from "../components/ShelfDialog";
 import ShelfGrid from "../components/ShelfGrid";
-import { dropHint, dropKind, placementIndex, saveShelfDrop, slotDescription, slotKey, type ArrangementSource } from "../shelfArrangement";
+import { dropHint, dropKind, placementIndex, saveShelfDrop, undoShelfChanges, slotDescription, slotKey, type ArrangementSource } from "../shelfArrangement";
 import type { Shelf, ShelfLayout, ShelfPlacement, ShelfPlacementChange, ShelfSettings, ShelfSlot } from "../types/Shelf";
 import { useShelfDrag } from "../useShelfDrag";
 import { shelfOccupancy } from "../collectionStatistics";
@@ -41,7 +41,7 @@ export default function Shelves(collection: CollectionProps) {
   const shelves = list.status === "ready" ? list.value : [];
   const selected = shelves.find(shelf => shelf.id === selectedId) ?? shelves[0];
   const shelfId = selected?.id;
-  const layoutKey = shelfId === undefined ? undefined : `${shelfId}:${placementRevision}`;
+  const layoutKey = shelfId === undefined ? undefined : `${shelfId}:${placementRevision}:${collection.shelfRevision ?? 0}`;
   const layout = storedLayout && storedLayout.key === layoutKey ? storedLayout.result : undefined;
   const placements = layout?.status === "ready" ? layout.value : undefined;
   const slots = useMemo(() => placementIndex(placements ?? []), [placements]);
@@ -73,7 +73,7 @@ export default function Shelves(collection: CollectionProps) {
       error => { if (!cancelled) setList({ status: "error", message: `Couldn’t load shelves. ${String(error)}` }); }
     );
     return () => { cancelled = true; };
-  }, [attempt]);
+  }, [attempt, collection.shelfRevision]);
 
   useEffect(() => {
     if (shelfId === undefined || layoutKey === undefined) return;
@@ -128,6 +128,13 @@ export default function Shelves(collection: CollectionProps) {
         status: "ready",
         value: current.value.map(shelf => shelf.id === selected.id ? { ...shelf, occupied: result.placements.length } : shelf)
       } : current);
+      const inverse = undoShelfChanges(placements ?? [], result.placements);
+      const savedShelfId = selected.id;
+      collection.onUndo?.(result.text + " Undo is available for 30 seconds.", async () => {
+        await invoke<ShelfPlacement[]>("update_shelf_placements", {
+          shelfId: savedShelfId, changes: inverse, expected: result.placements
+        });
+      });
       setPicked(null);
       setMessage({ text: result.text });
     } catch (failure) {

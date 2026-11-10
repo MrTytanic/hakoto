@@ -8,6 +8,7 @@ mod database;
 mod profile;
 mod shelves;
 mod storage;
+mod undo;
 
 struct DatabaseState {
     storage: Mutex<Result<storage::Storage, String>>,
@@ -51,6 +52,31 @@ fn update_album(
     state.with_storage(|storage| {
         database::update_album(&mut storage.connection, &storage.directory, album, artwork)
     })
+}
+
+#[tauri::command]
+fn get_deleted_albums(
+    state: State<'_, DatabaseState>,
+) -> Result<Vec<undo::PendingDeletion>, String> {
+    state.with_storage(|storage| undo::pending(&storage.connection))
+}
+
+#[tauri::command]
+fn delete_album_recoverable(state: State<'_, DatabaseState>, id: String) -> Result<String, String> {
+    state.with_storage(|storage| undo::delete(&mut storage.connection, &id))
+}
+
+#[tauri::command]
+fn restore_deleted_album(
+    state: State<'_, DatabaseState>,
+    token: String,
+) -> Result<database::Album, String> {
+    state.with_storage(|storage| undo::restore(&mut storage.connection, &storage.directory, &token))
+}
+
+#[tauri::command]
+fn discard_deleted_album(state: State<'_, DatabaseState>, token: String) -> Result<(), String> {
+    state.with_storage(|storage| undo::discard(&mut storage.connection, &storage.directory, &token))
 }
 
 #[tauri::command]
@@ -112,9 +138,10 @@ fn update_shelf_placements(
     state: State<'_, DatabaseState>,
     shelf_id: i64,
     changes: Vec<shelves::PlacementChange>,
+    expected: Option<Vec<shelves::Placement>>,
 ) -> Result<Vec<shelves::Placement>, String> {
     state.with_storage(|storage| {
-        shelves::update_placements(&mut storage.connection, shelf_id, changes)
+        shelves::update_placements_checked(&mut storage.connection, shelf_id, changes, expected)
     })
 }
 
@@ -242,6 +269,10 @@ pub fn run() {
             get_albums,
             update_album,
             delete_album,
+            delete_album_recoverable,
+            get_deleted_albums,
+            restore_deleted_album,
+            discard_deleted_album,
             read_artwork_bytes,
             get_shelves,
             get_shelf,
@@ -266,6 +297,11 @@ pub fn run() {
                         fs::create_dir_all(storage.directory.join(storage::ARTWORK_DIRECTORY))
                     {
                         eprintln!("Could not create artwork directory: {error}");
+                    }
+                    if let Err(error) =
+                        undo::purge_expired(&mut storage.connection, &storage.directory)
+                    {
+                        eprintln!("Could not expire deleted albums: {error}");
                     }
                     if let Err(error) = database::clean_orphaned_artwork(
                         &mut storage.connection,
