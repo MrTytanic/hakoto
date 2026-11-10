@@ -78,6 +78,23 @@ test("uses the horizontal stack layout and distinguishes an album that is still 
   assert.doesNotMatch(html, /Album unavailable/);
 });
 
+test("exposes one keyboard tab stop and distinguishes valid and occupied placement targets", () => {
+  const html = render(ShelfGrid, {
+    shelf,
+    albums: [album],
+    placements: [{ shelfId: 1, row: 0, column: 0, albumId: "album" }],
+    arrangement: {
+      source: { albumId: "other" }, hovered: { row: 0, column: 0 }, saving: false,
+      onSlot() {}, onDragStart() {}
+    }
+  });
+  assert.equal((html.match(/<button[^>]*tabindex="0"/g) ?? []).length, 1);
+  assert.match(html, /data-drop-kind="occupied" data-drop-hovered=""/);
+  assert.match(html, /aria-label="Row 1, column 1: Test Album — Test Artist\. Choose an empty slot for this album\."/);
+  assert.match(html, /data-drop-kind="place"/);
+  assert.match(html, /aria-label="Row 1, column 2: Empty\. Place in empty slot"/);
+});
+
 test("uses a native dialog with dimension limits and fills edit fields from the saved shelf", () => {
   const callbacks = { onClose() {}, async onSave() {}, async onDelete() {} };
   const create = render(ShelfDialog, { ...callbacks, action: { kind: "create" } });
