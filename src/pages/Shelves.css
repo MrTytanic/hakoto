@@ -366,3 +366,104 @@
 .shelf-drag-preview:is([data-drop-kind="occupied"], [data-drop-kind="origin"]) .shelf-drag-hint {
   color: var(--danger);
 }
+
+.shelf-slot-motion {
+  min-width: 0;
+}
+
+.shelves-page.is-dragging .shelf-slot[data-drop-kind="origin"] .shelf-slot-motion {
+  opacity: .55;
+}
+
+.shelves-page.is-dragging .shelf-slot[data-drop-hovered][data-drop-kind="swap"] {
+  outline-style: double;
+  outline-width: 4px;
+}
+
+.shelf-trash-target,
+.shelf-slot-menu {
+  position: fixed;
+  border-radius: 8px;
+  box-shadow: 0 4px 16px var(--shadow);
+}
+
+.shelf-trash-target {
+  z-index: 2099;
+  bottom: 16px;
+  left: 50%;
+  translate: -50% 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100vw - 24px);
+  padding: 12px 16px;
+  border: 1px dashed var(--danger);
+  background: var(--surface-raised);
+  color: var(--danger);
+  font-size: 13px;
+  font-weight: 650;
+  text-align: center;
+  cursor: grabbing;
+  user-select: none;
+}
+
+.shelf-trash-target[data-active] {
+  border-style: solid;
+  outline: 2px solid var(--danger);
+  background: var(--danger-subtle);
+}
+
+.shelf-slot-menu {
+  z-index: 2099;
+  width: min(208px, calc(100vw - 16px));
+  padding: 4px;
+  border: 1px solid var(--border);
+  background: var(--surface-raised);
+}
+
+.shelf-slot-menu button {
+  width: 100%;
+  min-height: 36px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--danger);
+  text-align: start;
+}
+
+.shelf-slot-menu button:is(:hover, :focus-visible) {
+  background: var(--danger-subtle);
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .shelf-slot {
+    transition: background-color 140ms ease, border-color 140ms ease;
+  }
+
+  .shelf-slot-motion,
+  .shelf-trash-target {
+    animation: shelf-settle 160ms ease-out both;
+  }
+
+  .shelves-page.is-dragging .shelf-slot-button:not([data-slot-empty]) .shelf-slot-motion {
+    animation: shelf-jiggle 250ms ease-in-out infinite alternate;
+    transform-origin: center 80%;
+  }
+
+  .shelves-page.is-dragging .shelf-slot:nth-child(even) .shelf-slot-motion {
+    animation-direction: alternate-reverse;
+  }
+}
+
+@keyframes shelf-settle {
+  from { opacity: .25; transform: translateY(-3px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shelf-jiggle {
+  from { transform: rotate(-1deg); }
+  to { transform: rotate(1deg); }
+}

@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { createPortal } from "react-dom";
 import { dropHint, dropKind, placementIndex, slotKey, type ArrangementSource } from "../shelfArrangement";
 import type { Album } from "../types/Album";
 import type { Shelf, ShelfPlacement, ShelfSlot } from "../types/Shelf";
@@ -13,6 +14,8 @@ type ShelfGridProps = {
     source: ArrangementSource | null;
     hovered: ShelfSlot | null;
     saving: boolean;
+    dragging?: boolean;
+    onRemove?: (source: ArrangementSource) => void;
     onSlot: (slot: ShelfSlot, albumId: string | undefined) => void;
     onDragStart: (event: PointerEvent<HTMLButtonElement>, source: ArrangementSource) => void;
   };
@@ -23,8 +26,23 @@ export default function ShelfGrid({ shelf, placements, albums, albumsLoading = f
   const slots = useMemo(() => placementIndex(placements), [placements]);
   const table = useRef<HTMLTableElement>(null);
   const [focus, setFocus] = useState<ShelfSlot>({ row: 0, column: 0 });
+  const [menu, setMenu] = useState<{ source: ArrangementSource; trigger: HTMLButtonElement; x: number; y: number }>();
+  const menuAction = useRef<HTMLButtonElement>(null);
   const focusedKey = slotKey({ row: Math.min(focus.row, shelf.rows - 1), column: Math.min(focus.column, shelf.columns - 1) });
   const hoveredKey = arrangement?.hovered ? slotKey(arrangement.hovered) : null;
+
+  useEffect(() => { if (menu) menuAction.current?.focus(); }, [menu]);
+
+  function openMenu(trigger: HTMLButtonElement, source: { albumId: string; slot: ShelfSlot }, x: number, y: number) {
+    if (!arrangement?.onRemove || arrangement.saving || arrangement.dragging) return;
+    setFocus(source.slot);
+    setMenu({ source, trigger, x: Math.max(8, Math.min(x, window.innerWidth - 216)), y: Math.max(8, Math.min(y, window.innerHeight - 56)) });
+  }
+
+  function closeMenu() {
+    setMenu(undefined);
+    menu?.trigger.focus();
+  }
 
   function navigate(event: KeyboardEvent, { row, column }: ShelfSlot) {
     switch (event.key) {
@@ -72,10 +90,22 @@ export default function ShelfGrid({ shelf, placements, albums, albumsLoading = f
                         aria-pressed={kind === "origin" || undefined}
                         aria-disabled={arrangement.saving || undefined}
                         onFocus={() => setFocus(slot)}
-                        onKeyDown={event => navigate(event, slot)}
+                        aria-haspopup={albumId !== undefined && arrangement.onRemove ? "menu" : undefined}
+                        onContextMenu={albumId !== undefined && arrangement.onRemove ? event => {
+                          event.preventDefault();
+                          openMenu(event.currentTarget, { albumId, slot }, event.clientX, event.clientY);
+                        } : undefined}
+                        onKeyDown={event => {
+                          if (albumId !== undefined && arrangement.onRemove &&
+                            (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+                            event.preventDefault();
+                            const bounds = event.currentTarget.getBoundingClientRect();
+                            openMenu(event.currentTarget, { albumId, slot }, bounds.left, bounds.bottom);
+                          } else navigate(event, slot);
+                        }}
                         onClick={() => arrangement.onSlot(slot, albumId)}
                         onPointerDown={album ? event => arrangement.onDragStart(event, { slot, albumId: album.id }) : undefined}
-                      >{content}</button>
+                      ><span className="shelf-slot-motion" key={albumId ?? "empty"}>{content}</span></button>
                     ) : content}
                   </td>
                 );
@@ -84,6 +114,22 @@ export default function ShelfGrid({ shelf, placements, albums, albumsLoading = f
           ))}
         </tbody>
       </table>
+      {menu && createPortal(
+        <div className="shelf-slot-menu" role="menu" aria-label="Shelf slot actions" style={{ left: menu.x, top: menu.y }}>
+          <button type="button" role="menuitem" ref={menuAction} onBlur={() => setMenu(undefined)}
+            onKeyDown={event => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                closeMenu();
+              }
+            }}
+            onClick={() => {
+              closeMenu();
+              arrangement?.onRemove?.(menu.source);
+            }}
+          >Remove from this shelf</button>
+        </div>, document.body
+      )}
     </div>
   );
 }

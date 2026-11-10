@@ -3,7 +3,8 @@ import { slotKey, type ArrangementSource } from "./shelfArrangement";
 import type { ShelfSlot } from "./types/Shelf";
 
 type Point = { x: number; y: number };
-type Drag = { source: ArrangementSource; target: ShelfSlot | null };
+type DropTarget = ShelfSlot | "trash" | null;
+type Drag = { source: ArrangementSource; target: DropTarget };
 type Gesture = {
   pointerId: number;
   element: HTMLElement;
@@ -11,12 +12,18 @@ type Gesture = {
   point: Point;
   source: ArrangementSource;
   active: boolean;
-  target: ShelfSlot | null;
+  target: DropTarget;
 };
 
-function hitSlot(root: HTMLElement | null, point: Point): ShelfSlot | null {
-  const slot = document.elementFromPoint(point.x, point.y)?.closest<HTMLElement>("[data-shelf-slot]");
+function hitTarget(root: HTMLElement | null, trash: HTMLElement | null, point: Point): DropTarget {
+  const hit = document.elementFromPoint(point.x, point.y);
+  if (hit && trash?.contains(hit)) return "trash";
+  const slot = hit?.closest<HTMLElement>("[data-shelf-slot]");
   return slot && root?.contains(slot) ? { row: Number(slot.dataset.row), column: Number(slot.dataset.column) } : null;
+}
+
+function targetKey(target: DropTarget) {
+  return target && target !== "trash" ? slotKey(target) : target;
 }
 
 function edgeSpeed(value: number, start: number, end: number) {
@@ -48,7 +55,7 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
   onStart, onDrop, onCancel
 }: {
   onStart: () => void;
-  onDrop: (source: ArrangementSource, target: ShelfSlot | null) => void;
+  onDrop: (source: ArrangementSource, target: DropTarget) => void;
   onCancel: () => void;
 }) {
   const [drag, setDrag] = useState<Drag | null>(null);
@@ -56,6 +63,7 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
   const frame = useRef<number | undefined>(undefined);
   const suppressClick = useRef(false);
   const previewRef = useRef<HTMLDivElement>(null);
+  const trashRef = useRef<HTMLDivElement>(null);
 
   const release = useCallback((releaseCapture = true) => {
     const current = gesture.current;
@@ -95,9 +103,9 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
     const current = gesture.current;
     if (!current?.active) return;
     const { point } = current;
-    scrollAtPointer(root.current, point);
-    const target = hitSlot(root.current, point);
-    if ((target && slotKey(target)) !== (current.target && slotKey(current.target))) {
+    if (hitTarget(null, trashRef.current, point) !== "trash") scrollAtPointer(root.current, point);
+    const target = hitTarget(root.current, current.source.slot ? trashRef.current : null, point);
+    if (targetKey(target) !== targetKey(current.target)) {
       current.target = target;
       setDrag({ source: current.source, target });
     }
@@ -137,7 +145,7 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
     if (!current?.active) return;
     suppressClick.current = true;
     setDrag(null);
-    onDrop(current.source, hitSlot(root.current, { x: event.clientX, y: event.clientY }));
+    onDrop(current.source, hitTarget(root.current, current.source.slot ? trashRef.current : null, { x: event.clientX, y: event.clientY }));
   }
 
   function onPointerCancel(event: PointerEvent) {
@@ -172,7 +180,7 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
   }
 
   return {
-    drag, previewRef, start, cancel,
+    drag, previewRef, trashRef, start, cancel,
     pointerHandlers: {
       onPointerDownCapture: () => { if (!gesture.current) suppressClick.current = false; }, onClickCapture
     }
