@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { alphabeticalDividersPreference, animationDurationPreference, animationDurations, animationsPreference, collectionViewPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
+import { alphabeticalDividersPreference, animationDurationPreference, animationDurations, animationsPreference, collectionPageSizePreference, collectionPageSizes, collectionViewPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
 
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const bootstrap = index.match(/<script>([\s\S]*?)<\/script>/);
@@ -15,6 +15,18 @@ function useStorage(t, storage) {
     else delete globalThis.localStorage;
   });
 }
+
+test("collection page size defaults to 25 and persists supported choices", t => {
+  const entries = new Map();
+  useStorage(t, { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) });
+  assert.equal(collectionPageSizePreference.read(), "25");
+  for (const size of collectionPageSizes) {
+    collectionPageSizePreference.write(size);
+    assert.equal(collectionPageSizePreference.read(), size);
+  }
+  entries.set("hakoto.collectionPageSize", "200");
+  assert.equal(collectionPageSizePreference.read(), "25");
+});
 
 test("animation timing persists allowed steps, defaults to 300ms and initializes before rendering", t => {
   const entries = new Map();

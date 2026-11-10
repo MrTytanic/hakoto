@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { getVisibleAlbums, groupVisibleAlbums } from "../src/collectionView.ts";
+import { getVisibleAlbums, groupVisibleAlbums, paginateAlbums } from "../src/collectionView.ts";
 
 function album(id, title, artist, format, releaseYear) {
   return Object.freeze({ id, title, artist, format, releaseYear, artwork: null, favorite: false });
@@ -16,6 +16,23 @@ const albums = Object.freeze([
 ]);
 
 const defaults = { query: "", formats: [], sort: "collection" };
+
+test("paginates ordered results without mutation and clamps after shrinking or empty results", () => {
+  const pinned = { ...albums[5], pinned: true };
+  const input = [...albums.slice(0, 5), pinned];
+  const ordered = getVisibleAlbums(input, { ...defaults, sort: "title-asc" });
+  assert.deepEqual(paginateAlbums(ordered, 0, 2).albums.map(album => album.id), ["h", "a"]);
+  assert.deepEqual(paginateAlbums(ordered, 2, 2).albums.map(album => album.id), ["s", "z"]);
+  const smaller = paginateAlbums(ordered.slice(0, 3), 2, 2);
+  assert.equal(smaller.pageIndex, 1);
+  assert.equal(smaller.pageCount, 2);
+  assert.equal(smaller.end, 3);
+  const empty = paginateAlbums([], 4, 25);
+  assert.equal(empty.pageIndex, 0);
+  assert.equal(empty.pageCount, 1);
+  assert.deepEqual(empty.albums, []);
+  assert.equal(input.at(-1), pinned);
+});
 
 function visibleIds(options) {
   return getVisibleAlbums(albums, { ...defaults, ...options }).map(album => album.id);

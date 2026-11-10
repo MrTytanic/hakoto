@@ -68,6 +68,20 @@ test("shows loaded albums, with search and sort beside the format popover", () =
   assert.doesNotMatch(html, /album-skeleton|Try again|Your collection is empty/);
 });
 
+test("renders only the default page and provides labeled pagination controls", () => {
+  const albums = Array.from({ length: 30 }, (_, id) => ({
+    id: String(id), title: `Album ${id}`, artist: "Artist", format: "CD",
+    releaseYear: "", artwork: null, favorite: false
+  }));
+  const html = render("ready", albums);
+  assert.equal((html.match(/class="album-card"/g) ?? []).length, 25);
+  assert.match(html, /aria-label="Collection pages"/);
+  assert.match(html, /Showing 1–25 of 30/);
+  assert.match(html, /Page 1 of 2/);
+  assert.match(html, /<option value="25" selected="">25<\/option>/);
+  assert.doesNotMatch(html, /title="Album 25"/);
+});
+
 test("restores list view with album details, pin indicator and the existing actions", t => {
   const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   Object.defineProperty(globalThis, "localStorage", {
