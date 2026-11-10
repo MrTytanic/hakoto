@@ -6,6 +6,7 @@ use tauri_plugin_opener::OpenerExt;
 mod artwork;
 mod database;
 mod profile;
+mod shelves;
 mod storage;
 
 struct DatabaseState {
@@ -56,6 +57,52 @@ fn update_album(
 fn delete_album(state: State<'_, DatabaseState>, id: String) -> Result<usize, String> {
     state.with_storage(|storage| {
         database::delete_album(&mut storage.connection, &storage.directory, &id)
+    })
+}
+
+#[tauri::command]
+fn get_shelves(state: State<'_, DatabaseState>) -> Result<Vec<shelves::Shelf>, String> {
+    state.with_storage(|storage| shelves::get_shelves(&storage.connection))
+}
+
+#[tauri::command]
+fn get_shelf(
+    state: State<'_, DatabaseState>,
+    shelf_id: i64,
+) -> Result<shelves::ShelfLayout, String> {
+    state.with_storage(|storage| shelves::load_shelf(&mut storage.connection, shelf_id))
+}
+
+#[tauri::command]
+fn create_shelf(
+    state: State<'_, DatabaseState>,
+    settings: shelves::ShelfSettings,
+) -> Result<shelves::Shelf, String> {
+    state.with_storage(|storage| shelves::create_shelf(&storage.connection, settings))
+}
+
+#[tauri::command]
+fn update_shelf(
+    state: State<'_, DatabaseState>,
+    shelf_id: i64,
+    settings: shelves::ShelfSettings,
+) -> Result<shelves::Shelf, String> {
+    state.with_storage(|storage| shelves::update_shelf(&mut storage.connection, shelf_id, settings))
+}
+
+#[tauri::command]
+fn delete_shelf(state: State<'_, DatabaseState>, shelf_id: i64) -> Result<usize, String> {
+    state.with_storage(|storage| shelves::delete_shelf(&storage.connection, shelf_id))
+}
+
+#[tauri::command]
+fn update_shelf_placements(
+    state: State<'_, DatabaseState>,
+    shelf_id: i64,
+    changes: Vec<shelves::PlacementChange>,
+) -> Result<Vec<shelves::Placement>, String> {
+    state.with_storage(|storage| {
+        shelves::update_placements(&mut storage.connection, shelf_id, changes)
     })
 }
 
@@ -183,6 +230,12 @@ pub fn run() {
             get_albums,
             update_album,
             delete_album,
+            get_shelves,
+            get_shelf,
+            create_shelf,
+            update_shelf,
+            delete_shelf,
+            update_shelf_placements,
             get_profile,
             set_display_name,
             set_profile_picture,
