@@ -10,6 +10,7 @@ import ShelfGrid from "../components/ShelfGrid";
 import { dropHint, dropKind, placementIndex, saveShelfDrop, slotDescription, slotKey, type ArrangementSource } from "../shelfArrangement";
 import type { Shelf, ShelfLayout, ShelfPlacement, ShelfPlacementChange, ShelfSettings, ShelfSlot } from "../types/Shelf";
 import { useShelfDrag } from "../useShelfDrag";
+import { shelfOccupancy } from "../collectionStatistics";
 import Collection, { type CollectionProps } from "./Collection";
 import "./Shelves.css";
 
@@ -46,6 +47,7 @@ export default function Shelves(collection: CollectionProps) {
   const slots = useMemo(() => placementIndex(placements ?? []), [placements]);
   const albumsById = useMemo(() => new Map(collection.albums.map(album => [album.id, album])), [collection.albums]);
   const canArrange = placements !== undefined && collection.loadStatus === "ready";
+  const occupancy = selected && shelfOccupancy(selected.rows, selected.columns, placements?.length ?? selected.occupied);
 
   const announceCancel = useCallback(() => setMessage({ text: "Arrangement canceled." }), []);
   const pointer = useShelfDrag(workspace, {
@@ -122,6 +124,10 @@ export default function Shelves(collection: CollectionProps) {
       setStoredLayout(current => current?.key === layoutKey
         ? { key: layoutKey, result: { status: "ready", value: result.placements } }
         : current);
+      setList(current => current.status === "ready" ? {
+        status: "ready",
+        value: current.value.map(shelf => shelf.id === selected.id ? { ...shelf, occupied: result.placements.length } : shelf)
+      } : current);
       setPicked(null);
       setMessage({ text: result.text });
     } catch (failure) {
@@ -213,7 +219,10 @@ export default function Shelves(collection: CollectionProps) {
                     resetArrangement();
                     setSelectedId(Number(event.target.value));
                   }}>
-                    {shelves.map(shelf => <option key={shelf.id} value={shelf.id}>{shelf.name}</option>)}
+                    {shelves.map(shelf => {
+                      const usage = shelfOccupancy(shelf.rows, shelf.columns, shelf.occupied);
+                      return <option key={shelf.id} value={shelf.id}>{shelf.name} · {usage.occupied}/{usage.total} ({usage.percentage}%)</option>;
+                    })}
                   </select>
                 </div>
                 <button type="button" className="album-cancel" disabled={saving} onClick={() => openDialog({ kind: "edit", shelf: selected })}>Edit Shelf</button>
@@ -222,6 +231,13 @@ export default function Shelves(collection: CollectionProps) {
               <p className="shelf-dimensions">
                 {selected.rows} × {selected.columns} · {selected.orientation === "vertical" ? "Vertical spines" : "Horizontal stack"}
               </p>
+              {occupancy && (
+                <div className="shelf-occupancy">
+                  <span id="shelf-occupancy-label">{occupancy.occupied}/{occupancy.total} slots occupied · {occupancy.percentage}%</span>
+                  <progress value={occupancy.occupied} max={occupancy.total} aria-labelledby="shelf-occupancy-label" />
+                  {occupancy.occupied === 0 && <p>Place an album to start filling this shelf.</p>}
+                </div>
+              )}
               {canArrange && (
                 <p id="shelf-arrange-help" className="shelf-arrange-help">
                   Drag an album or a filled slot. For click or keyboard placement, use Place or select a filled slot, then choose a destination. Arrow keys move between slots, Enter selects, and Escape cancels. To remove a shelved album, drag it to the trash or open its slot menu with right-click or Shift+F10.
@@ -273,6 +289,7 @@ export default function Shelves(collection: CollectionProps) {
             await collection.onDelete(id);
             resetArrangement();
             setPlacementRevision(value => value + 1);
+            setAttempt(value => value + 1);
           }}
         />
       </section>
