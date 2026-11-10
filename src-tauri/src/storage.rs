@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::{
     artwork,
     database::{self, DATABASE_NAME},
-    profile,
+    profile, shelves,
 };
 
 const LOCATION_FILE: &str = "storage-location.json";
@@ -183,11 +183,11 @@ impl Storage {
             );
         }
         backup.close().map_err(|(_, error)| error)?;
+        let connection = open_saved_collection(target)?;
         OpenOptions::new()
             .write(true)
             .open(&target_db)?
             .sync_all()?;
-        let connection = open_saved_collection(target)?;
         for folder in IMAGE_FOLDERS {
             fs::create_dir(target.join(folder))?;
             for (name, _) in image_files(&self.directory, folder)? {
@@ -293,10 +293,11 @@ fn open_saved_collection(directory: &Path) -> Result<Connection> {
     if checked_file(&path)?.len() == 0 {
         return Err("The saved database is empty.".into());
     }
-    let connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     connection
         .prepare("SELECT id, title, artist, format, release_year, artwork, favorite FROM albums")?;
     profile::get(&connection)?;
+    shelves::migrate(&mut connection)?;
     Ok(connection)
 }
 

@@ -7,7 +7,7 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
-use crate::{artwork, profile};
+use crate::{artwork, profile, shelves};
 
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 pub const DATABASE_NAME: &str = "hakoto.db";
@@ -47,6 +47,7 @@ pub fn initialize_database(
         import_legacy_albums(&transaction, app_dir, legacy_dir)?;
     }
     transaction.commit()?;
+    shelves::migrate(&mut connection)?;
     Ok(connection)
 }
 
