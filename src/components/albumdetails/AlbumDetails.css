@@ -36,7 +36,7 @@
 
 .details-header h2 {
   margin: 0;
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
 }
 
 .details-header > button {
@@ -83,19 +83,19 @@
 
 .details-information h3 {
   margin: 0;
-  font-size: 21px;
+  font-size: calc(21px * var(--text-scale));
   overflow-wrap: anywhere;
 }
 
 .details-information p {
   margin: 0 0 8px;
   color: var(--text-muted);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
 }
 
 .details-information span {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .details-actions {
@@ -116,7 +116,7 @@
   background: var(--surface-muted);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   cursor: pointer;
 }
 
@@ -146,7 +146,7 @@
 
 .details-form label {
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
 }
 
@@ -161,7 +161,7 @@
   background: var(--canvas);
   color: var(--text-strong);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 @media (max-width: 500px) {
@@ -219,14 +219,14 @@
 .delete-confirmation h3 {
   margin: 0 0 10px;
   color: var(--text-strong);
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale));
   font-weight: 600;
 }
 
 .delete-confirmation p {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   line-height: 1.6;
 }
 
@@ -250,7 +250,7 @@
   background: var(--surface-muted);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 500;
   cursor: pointer;
 }

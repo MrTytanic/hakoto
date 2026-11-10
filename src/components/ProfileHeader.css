@@ -4,9 +4,13 @@
   gap: 16px;
 }
 
+.profile-header-text {
+  min-width: 0;
+}
+
 .profile-header .profile-header-text h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale));
   color: var(--text-strong);
   overflow-wrap: anywhere;
 }

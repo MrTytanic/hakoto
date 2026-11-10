@@ -21,7 +21,7 @@
 .settings-card p {
   margin: 0;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .settings-section {
@@ -38,7 +38,7 @@
 
 .settings-section-heading h2 {
   margin: 0 0 6px;
-  font-size: 17px;
+  font-size: calc(17px * var(--text-scale));
   font-weight: 600;
   color: var(--text);
 }
@@ -60,7 +60,7 @@
 .settings-field > label,
 .settings-theme legend {
   color: var(--text);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 600;
 }
 
@@ -117,7 +117,8 @@
   margin: 6px 0 14px;
 }
 
-.settings-field input[type="text"] {
+.settings-field input[type="text"],
+.settings-field select {
   width: 100%;
   max-width: 320px;
   height: 38px;
@@ -128,16 +129,49 @@
   background: var(--canvas);
   color: var(--text-strong);
   font: inherit;
-  font-size: 14px;
-  transition: border-color .2s;
+  font-size: calc(14px * var(--text-scale));
+  transition: border-color var(--animation-short);
 }
 
 .settings-field input[type="text"]::placeholder {
   color: var(--text-subtle);
 }
 
-.settings-field input[type="text"]:focus {
+.settings-field input[type="text"]:focus,
+.settings-field select:focus-visible {
   border-color: var(--focus);
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.settings-motion {
+  margin-top: 18px;
+}
+
+.settings-duration-control {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  max-width: 320px;
+  margin-top: 8px;
+}
+
+.settings-duration-control input {
+  min-width: 0;
+  flex: 1;
+  margin: 0;
+  accent-color: var(--focus);
+}
+
+.settings-duration-control input:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 3px;
+}
+
+.settings-duration-control output {
+  min-width: 5ch;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Profile picture */
@@ -172,10 +206,10 @@
   background: var(--surface-muted);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 500;
   cursor: pointer;
-  transition: background .2s;
+  transition: background var(--animation-short);
 }
 
 .settings-upload:hover,
@@ -218,7 +252,7 @@
 }
 
 .storage-settings h3 {
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
 }
 
 .storage-path {
@@ -244,7 +278,7 @@
   display: grid;
   width: 100%;
   gap: 6px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .storage-usage > div,
@@ -299,5 +333,6 @@
 
   .settings-avatar-row {
     align-items: flex-start;
+    flex-wrap: wrap;
   }
 }

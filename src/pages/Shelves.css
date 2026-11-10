@@ -20,7 +20,7 @@
 .shelf-workspace-heading h2,
 .shelf-collection .collection-top h2 {
   margin: 0;
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale));
   font-weight: 650;
 }
 
@@ -41,7 +41,7 @@
 
 .shelf-workspace .shelf-dimensions {
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .shelf-message {
@@ -57,7 +57,7 @@
 
 .shelf-message h3 {
   margin: 0;
-  font-size: 15px;
+  font-size: calc(15px * var(--text-scale));
 }
 
 .shelf-message p,
@@ -100,7 +100,7 @@
   display: block;
   margin-bottom: 4px;
   color: var(--text-muted);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
 }
 
 .shelf-spine {
@@ -118,7 +118,7 @@
   border-radius: 3px;
   background: var(--spine-background, var(--navigation-active));
   color: var(--spine-foreground, var(--text-strong));
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   line-height: 1.1;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
@@ -149,7 +149,7 @@
 
 .shelf-spine-detail {
   display: none;
-  font-size: 10px;
+  font-size: calc(10px * var(--text-scale));
 }
 
 .shelf-grid[data-orientation="horizontal"] {
@@ -169,6 +169,10 @@
 
 .shelf-grid[data-orientation="horizontal"] .shelf-spine-detail {
   display: block;
+}
+
+:root:is([data-text-scale="115"], [data-text-scale="130"]) .shelf-grid[data-orientation="horizontal"] .shelf-spine-detail {
+  display: none;
 }
 
 .shelf-collection {
@@ -219,7 +223,7 @@
 
 .shelf-workspace :is(.shelf-arrange-help, .shelf-arrange-status) {
   margin-bottom: 8px;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .shelf-arrange-status:empty {
@@ -347,7 +351,7 @@
   min-width: 0;
   align-content: center;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .shelf-drag-info > * {
@@ -363,7 +367,7 @@
 .shelf-drag-hint {
   grid-column: 1 / -1;
   color: var(--text-muted);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .shelf-drag-preview:is([data-drop-kind="occupied"], [data-drop-kind="origin"]) .shelf-drag-hint {
@@ -403,7 +407,7 @@
   border: 1px dashed var(--danger);
   background: var(--surface-raised);
   color: var(--danger);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 650;
   text-align: center;
   cursor: grabbing;
@@ -443,16 +447,16 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .shelf-slot {
-    transition: background-color 140ms ease, border-color 140ms ease;
+    transition: background-color var(--animation-short) ease, border-color var(--animation-short) ease;
   }
 
   .shelf-slot-motion,
   .shelf-trash-target {
-    animation: shelf-settle 160ms ease-out both;
+    animation: shelf-settle var(--animation-settle) ease-out both;
   }
 
   .shelves-page.is-dragging .shelf-slot-button:not([data-slot-empty]) .shelf-slot-motion {
-    animation: shelf-jiggle 250ms ease-in-out infinite alternate;
+    animation: shelf-jiggle var(--animation-long) ease-in-out infinite alternate;
     transform-origin: center 80%;
   }
 
