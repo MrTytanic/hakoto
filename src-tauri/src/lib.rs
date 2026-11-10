@@ -61,6 +61,18 @@ fn delete_album(state: State<'_, DatabaseState>, id: String) -> Result<usize, St
 }
 
 #[tauri::command]
+fn read_artwork_bytes(
+    state: State<'_, DatabaseState>,
+    filename: String,
+) -> Result<tauri::ipc::Response, String> {
+    state.with_storage(|storage| {
+        artwork::read(&storage.directory, &filename)
+            .map(tauri::ipc::Response::new)
+            .ok_or_else(|| "Album artwork is unavailable.".into())
+    })
+}
+
+#[tauri::command]
 fn get_shelves(state: State<'_, DatabaseState>) -> Result<Vec<shelves::Shelf>, String> {
     state.with_storage(|storage| shelves::get_shelves(&storage.connection))
 }
@@ -230,6 +242,7 @@ pub fn run() {
             get_albums,
             update_album,
             delete_album,
+            read_artwork_bytes,
             get_shelves,
             get_shelf,
             create_shelf,

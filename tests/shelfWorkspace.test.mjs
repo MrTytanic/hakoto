@@ -74,8 +74,26 @@ test("uses the horizontal stack layout and distinguishes an album that is still 
     placements: [{ shelfId: 1, row: 0, column: 0, albumId: "album" }]
   });
   assert.match(html, /data-orientation="horizontal"/);
-  assert.match(html, /<span class="shelf-spine">Loading album…<\/span>/);
+  assert.match(html, /<span class="shelf-spine"><span class="shelf-spine-title">Loading album…<\/span>/);
   assert.doesNotMatch(html, /Album unavailable/);
+});
+
+test("renders media spines with full tooltips and a neutral fallback before artwork is sampled", () => {
+  const albums = [
+    { ...album, id: "record", title: "A long vinyl title that may need to be truncated", format: "Vinyl (12-inch LP)", artwork: "00000000000000000000000000000001.webp" },
+    { ...album, id: "tape", format: "Cassette" },
+    album
+  ];
+  const html = render(ShelfGrid, {
+    shelf: { ...shelf, orientation: "horizontal" },
+    albums,
+    placements: albums.map(({ id }, column) => ({ shelfId: 1, row: 0, column, albumId: id }))
+  });
+  assert.match(html, /data-media="record" title="A long vinyl title that may need to be truncated — Test Artist · Vinyl \(12-inch LP\)"/);
+  assert.match(html, /class="shelf-spine-title">A long vinyl title that may need to be truncated<\/span>/);
+  assert.match(html, /data-media="tape"[^>]*>.*?class="shelf-spine-detail">Cassette<\/span>/);
+  assert.match(html, /data-media="case"/);
+  assert.doesNotMatch(html, /<img\b|--spine-background/);
 });
 
 test("exposes one keyboard tab stop and distinguishes valid and occupied placement targets", () => {

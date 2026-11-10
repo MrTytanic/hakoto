@@ -2,6 +2,7 @@ import { useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from
 import { dropHint, dropKind, placementIndex, slotKey, type ArrangementSource } from "../shelfArrangement";
 import type { Album } from "../types/Album";
 import type { Shelf, ShelfPlacement, ShelfSlot } from "../types/Shelf";
+import ShelfSpine from "./ShelfSpine";
 
 type ShelfGridProps = {
   shelf: Shelf;
@@ -52,7 +53,9 @@ export default function ShelfGrid({ shelf, placements, albums, albumsLoading = f
                 const description = album ? `${album.title} — ${album.artist}` : title;
                 const label = `Row ${row + 1}, column ${column + 1}: ${description}`;
                 const kind = arrangement?.source ? dropKind(arrangement.source, slot, albumId) : undefined;
-                const content = <span className={albumId === undefined ? "shelf-empty-slot" : "shelf-spine"}>{title}</span>;
+                const content = albumId === undefined ? <span className="shelf-empty-slot">Empty</span> : (
+                  <ShelfSpine album={album} fallback={title} />
+                );
                 return (
                   <td key={column} className="shelf-slot" aria-label={arrangement ? undefined : label} title={description}
                     data-shelf-slot={arrangement ? "" : undefined} data-row={row} data-column={column}

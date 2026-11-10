@@ -99,23 +99,51 @@
 }
 
 .shelf-spine {
-  display: block;
-  width: 26px;
-  height: 88px;
+  display: grid;
+  align-content: center;
+  width: 28px;
+  height: 84px;
   margin-inline: auto;
   overflow: hidden;
-  padding-block: 5px;
-  border: 1px solid var(--focus);
+  padding-block: 3px;
+  padding-inline: 5px;
+  border: 1px solid var(--border);
+  border-inline-start-width: 3px;
   border-radius: 3px;
-  background: var(--navigation-active);
-  color: var(--text-strong);
-  font-size: 12px;
-  font-weight: 600;
-  line-height: 24px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  background: var(--spine-background, var(--navigation-active));
+  color: var(--spine-foreground, var(--text-strong));
+  font-size: 11px;
+  line-height: 1.1;
   writing-mode: vertical-rl;
   transform: rotate(180deg);
+}
+
+.shelf-spine[data-media="record"] {
+  width: 22px;
+  height: 90px;
+}
+
+.shelf-spine[data-media="tape"] {
+  width: 33px;
+  height: 72px;
+}
+
+.shelf-spine-title,
+.shelf-spine-detail {
+  display: block;
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shelf-spine-title {
+  font-weight: 650;
+}
+
+.shelf-spine-detail {
+  display: none;
+  font-size: 10px;
 }
 
 .shelf-grid[data-orientation="horizontal"] .shelf-slot {
@@ -125,11 +153,15 @@
 
 .shelf-grid[data-orientation="horizontal"] .shelf-spine {
   width: 118px;
-  height: 24px;
-  padding: 0 5px;
-  line-height: 22px;
+  height: 28px;
+  padding: 1px 5px;
+  text-align: start;
   writing-mode: horizontal-tb;
   transform: none;
+}
+
+.shelf-grid[data-orientation="horizontal"] .shelf-spine-detail {
+  display: block;
 }
 
 .shelf-collection {
