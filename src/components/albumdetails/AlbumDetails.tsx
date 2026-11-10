@@ -5,10 +5,12 @@ import type { Album } from "../../types/Album";
 import { albumFormats } from "../../constants/albumFormats";
 import { artworkUrl, encodeArtwork, type ArtworkChange } from "../../artwork";
 import { ArtworkImage, ArtworkPicker } from "../Artwork";
+import AlbumMetadataFields, { albumMetadata } from "../AlbumMetadataFields";
 import "./AlbumDetails.css";
 
 type AlbumDetailsProps = {
   album: Album;
+  initialAction?: "edit" | "delete";
   onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
   onError: (message: string) => void;
   onDelete: (id: string) => Promise<void>;
@@ -17,13 +19,14 @@ type AlbumDetailsProps = {
 
 function AlbumDetails({
   album,
+  initialAction,
   onUpdate,
   onDelete,
   onError,
   onClose
 }: AlbumDetailsProps) {
-  const [editing, setEditing] = useState(false);
-  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(false);
+  const [editing, setEditing] = useState(initialAction === "edit");
+  const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(initialAction === "delete");
   const [isSaving, setIsSaving] = useState(false);
 
   // Prevent duplicate requests before React rerenders.
@@ -34,6 +37,8 @@ function AlbumDetails({
   const [format, setFormat] = useState(album.format);
   const [releaseYear, setReleaseYear] = useState(album.releaseYear);
 
+  const [metadata, setMetadata] = useState(() => albumMetadata(album, album.format));
+
   const [artwork, setArtwork] = useState<File | null>();
 
   function startEditing() {
@@ -41,6 +46,7 @@ function AlbumDetails({
     setArtist(album.artist);
     setFormat(album.format);
     setReleaseYear(album.releaseYear);
+    setMetadata(albumMetadata(album, album.format));
     setArtwork(undefined);
     setEditing(true);
   }
@@ -76,7 +82,8 @@ function AlbumDetails({
         title: title.trim(),
         artist: artist.trim(),
         format,
-        releaseYear
+        releaseYear,
+        ...albumMetadata(metadata, format)
       }, change);
 
       setEditing(false);
@@ -162,6 +169,7 @@ function AlbumDetails({
             <label htmlFor="edit-title">Album Title</label>
             <input
               id="edit-title"
+              autoFocus
               value={title}
               onChange={e => setTitle(e.target.value)}
               disabled={isSaving}
@@ -201,6 +209,9 @@ function AlbumDetails({
               onChange={e => setReleaseYear(e.target.value)}
               disabled={isSaving}
             />
+
+            <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
+            <p className="album-date-note">Date added: {album.dateAdded ?? "Unknown"}</p>
 
             <ArtworkPicker
               artwork={artwork}
@@ -244,6 +255,10 @@ function AlbumDetails({
                 <p>{album.artist}</p>
                 <span>{album.format}</span>
 
+                {album.condition && <span>{album.condition}</span>}
+                {album.recordType && <span>{album.recordType}</span>}
+                {album.discSize && <span>{album.discSize}″</span>}
+                {album.dateAdded && <span>Added {album.dateAdded}</span>}
                 {album.releaseYear && (
                   <span>{album.releaseYear}</span>
                 )}
@@ -317,6 +332,7 @@ function AlbumDetails({
             <div className="delete-confirmation-actions">
               <button
                 type="button"
+                autoFocus
                 onClick={() => setShowDeleteConfirmation(false)}
                 disabled={isSaving}
               >

@@ -297,6 +297,10 @@ fn open_saved_collection(directory: &Path) -> Result<Connection> {
     connection
         .prepare("SELECT id, title, artist, format, release_year, artwork, favorite FROM albums")?;
     profile::get(&connection)?;
+    let transaction =
+        connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    crate::database::migrate_album_columns(&transaction)?;
+    transaction.commit()?;
     shelves::migrate(&mut connection)?;
     Ok(connection)
 }
@@ -413,6 +417,11 @@ mod tests {
             release_year: "2000".into(),
             artwork: None,
             favorite: true,
+            pinned: false,
+            date_added: None,
+            condition: None,
+            record_type: None,
+            disc_size: None,
         }
     }
 

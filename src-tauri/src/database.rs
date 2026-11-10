@@ -12,8 +12,8 @@ use crate::{artwork, profile, shelves};
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 pub const DATABASE_NAME: &str = "hakoto.db";
 const INSERT_ALBUM: &str = "INSERT INTO albums
-    (id, title, artist, format, release_year, artwork, favorite)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)";
+    (id, title, artist, format, release_year, artwork, favorite, pinned, date_added, condition, record_type, disc_size)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
 pub fn initialize_database(
     app_dir: &Path,
@@ -40,6 +40,7 @@ pub fn initialize_database(
         UPDATE albums SET artwork = NULL WHERE artwork GLOB 'blob:*';
         ",
     )?;
+    migrate_album_columns(&transaction)?;
     profile::initialize(&transaction)?;
 
     // Commit the table and its imported rows together so a failed import can be retried.
@@ -49,6 +50,27 @@ pub fn initialize_database(
     transaction.commit()?;
     shelves::migrate(&mut connection)?;
     Ok(connection)
+}
+
+fn has_album_metadata(connection: &Connection) -> rusqlite::Result<bool> {
+    connection.query_row(
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('albums') WHERE name = 'pinned')",
+        [],
+        |row| row.get(0),
+    )
+}
+
+pub(crate) fn migrate_album_columns(connection: &Connection) -> rusqlite::Result<()> {
+    if !has_album_metadata(connection)? {
+        connection.execute_batch(
+            "ALTER TABLE albums ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
+             ALTER TABLE albums ADD COLUMN date_added TEXT;
+             ALTER TABLE albums ADD COLUMN condition TEXT;
+             ALTER TABLE albums ADD COLUMN record_type TEXT;
+             ALTER TABLE albums ADD COLUMN disc_size TEXT;",
+        )?;
+    }
+    Ok(())
 }
 
 fn import_legacy_albums(
@@ -95,6 +117,13 @@ pub struct Album {
     #[serde(skip_deserializing)]
     pub artwork: Option<String>,
     pub favorite: bool,
+    #[serde(default)]
+    pub pinned: bool,
+    #[serde(skip_deserializing)]
+    pub date_added: Option<String>,
+    pub condition: Option<String>,
+    pub record_type: Option<String>,
+    pub disc_size: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -105,11 +134,15 @@ pub enum ArtworkChange {
 }
 
 pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
-    let mut statement = connection.prepare(
-        "SELECT id, title, artist, format, release_year, artwork, favorite
-         FROM albums
-         ORDER BY rowid ASC",
-    )?;
+    let metadata = if has_album_metadata(connection)? {
+        "pinned, date_added, condition, record_type, disc_size"
+    } else {
+        "0, NULL, NULL, NULL, NULL"
+    };
+    let mut statement = connection.prepare(&format!(
+        "SELECT id, title, artist, format, release_year, artwork, favorite, {metadata}
+         FROM albums ORDER BY rowid ASC"
+    ))?;
 
     let albums = statement.query_map([], |row| {
         Ok(Album {
@@ -122,6 +155,11 @@ pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
                 .get::<_, Option<String>>(5)?
                 .filter(|name| artwork::is_filename(name)),
             favorite: row.get(6)?,
+            pinned: row.get(7)?,
+            date_added: row.get(8)?,
+            condition: row.get(9)?,
+            record_type: row.get(10)?,
+            disc_size: row.get(11)?,
         })
     })?;
 
@@ -169,6 +207,21 @@ fn store_album(
         album_artwork(&transaction, &album.id).map_err(|error| error.to_string())?
     };
 
+    album.date_added = if insert {
+        transaction.query_row("SELECT date('now')", [], |row| row.get(0))
+    } else {
+        transaction.query_row(
+            "SELECT date_added FROM albums WHERE id = ?1",
+            [&album.id],
+            |row| row.get(0),
+        )
+    }
+    .map_err(|error| error.to_string())?;
+    if !album.format.starts_with("Vinyl") {
+        album.record_type = None;
+        album.disc_size = None;
+    }
+
     let mut new_file = None;
     album.artwork = match change {
         None => previous.clone(),
@@ -185,7 +238,8 @@ fn store_album(
         INSERT_ALBUM
     } else {
         "UPDATE albums SET title = ?2, artist = ?3, format = ?4, release_year = ?5,
-                           artwork = ?6, favorite = ?7 WHERE id = ?1"
+                           artwork = ?6, favorite = ?7, pinned = ?8, date_added = ?9,
+                           condition = ?10, record_type = ?11, disc_size = ?12 WHERE id = ?1"
     };
     let result = write_album(&transaction, sql, &album).and_then(|_| transaction.commit());
 
@@ -227,6 +281,11 @@ fn write_album(connection: &Connection, sql: &str, album: &Album) -> rusqlite::R
             album.release_year,
             album.artwork,
             album.favorite,
+            album.pinned,
+            album.date_added,
+            album.condition,
+            album.record_type,
+            album.disc_size,
         ],
     )
 }
@@ -359,6 +418,11 @@ mod tests {
             release_year: "1999".into(),
             artwork: None,
             favorite: false,
+            pinned: false,
+            date_added: None,
+            condition: None,
+            record_type: None,
+            disc_size: None,
         }
     }
 
@@ -560,6 +624,33 @@ mod tests {
     }
 
     #[test]
+    fn migrates_album_metadata_without_inventing_dates_for_existing_albums() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let old = Connection::open(app_dir.join(DATABASE_NAME)).unwrap();
+        old.execute_batch(
+            "CREATE TABLE albums (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, artist TEXT NOT NULL,
+                format TEXT NOT NULL, release_year TEXT NOT NULL, artwork TEXT,
+                favorite INTEGER NOT NULL DEFAULT 0
+             );
+             INSERT INTO albums VALUES ('old', 'Title', 'Artist', 'CD', '', NULL, 1);",
+        )
+        .unwrap();
+        drop(old);
+
+        let db = initialize_database(app_dir, None).unwrap();
+        let saved = get_albums(&db).unwrap().pop().unwrap();
+        assert_eq!(saved.id, "old");
+        assert_eq!(saved.title, "Title");
+        assert!(saved.favorite);
+        assert!(!saved.pinned);
+        assert!(saved.date_added.is_none());
+        assert!(saved.condition.is_none());
+        assert!(saved.release_year.is_empty());
+    }
+
+    #[test]
     fn album_metadata_favorite_and_deletion_persist_across_reopens() {
         let directory = TestDirectory::new();
         let app_dir = &directory.0;
@@ -568,17 +659,29 @@ mod tests {
         let mut saved = get_albums(&db).unwrap().pop().unwrap();
         assert_eq!(saved.title, "Title");
         assert!(!saved.favorite);
+        let date_added = saved.date_added.clone().unwrap();
+        assert_eq!(date_added.len(), 10);
 
         saved.title = "Updated title".into();
         saved.artist = "Updated artist".into();
         saved.format = "Vinyl".into();
         saved.release_year = "2001".into();
         saved.favorite = true;
+        saved.pinned = true;
+        saved.condition = Some("Near Mint".into());
+        saved.record_type = Some("EP".into());
+        saved.disc_size = Some("10".into());
+        saved.date_added = None;
         update_album(&mut db, app_dir, saved, None).unwrap();
         drop(db);
 
         let mut db = initialize_database(app_dir, None).unwrap();
         let albums = get_albums(&db).unwrap();
+        assert!(albums[0].pinned);
+        assert_eq!(albums[0].date_added.as_deref(), Some(date_added.as_str()));
+        assert_eq!(albums[0].condition.as_deref(), Some("Near Mint"));
+        assert_eq!(albums[0].record_type.as_deref(), Some("EP"));
+        assert_eq!(albums[0].disc_size.as_deref(), Some("10"));
         assert_eq!(albums.len(), 1);
         let updated = &albums[0];
         assert_eq!(updated.id, "album");
