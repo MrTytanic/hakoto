@@ -75,14 +75,19 @@
 }
 
 .shelf-grid {
+  --slot-width: 41px;
+  --slot-height: 108px;
   width: max-content;
-  border-spacing: 4px;
+  border-spacing: 2px 4px;
 }
 
 .shelf-slot {
-  min-width: 70px;
-  height: 108px;
-  padding: 6px;
+  box-sizing: border-box;
+  width: var(--slot-width);
+  min-width: var(--slot-width);
+  max-width: var(--slot-width);
+  height: var(--slot-height);
+  padding: 4px 0;
   border: 1px solid var(--border-subtle);
   border-bottom: 3px solid var(--border);
   border-radius: 4px;
@@ -99,6 +104,7 @@
 }
 
 .shelf-spine {
+  box-sizing: border-box;
   display: grid;
   align-content: center;
   width: 28px;
@@ -146,9 +152,10 @@
   font-size: 10px;
 }
 
-.shelf-grid[data-orientation="horizontal"] .shelf-slot {
-  min-width: 132px;
-  height: 44px;
+.shelf-grid[data-orientation="horizontal"] {
+  --slot-width: 132px;
+  --slot-height: 44px;
+  border-spacing: 4px;
 }
 
 .shelf-grid[data-orientation="horizontal"] .shelf-spine {
@@ -228,16 +235,12 @@
   align-items: flex-end;
   justify-content: center;
   width: 100%;
-  min-height: 104px;
-  padding: 6px;
+  height: calc(var(--slot-height) - 4px);
+  padding: 4px 0;
   border: 0;
   border-radius: 3px;
   background: transparent;
   color: inherit;
-}
-
-.shelf-grid[data-orientation="horizontal"] .shelf-slot-button {
-  min-height: 40px;
 }
 
 .shelf-album-card {

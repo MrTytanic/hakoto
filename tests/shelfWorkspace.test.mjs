@@ -44,7 +44,7 @@ test("shows the loading shelf workspace above the shared Collection controls and
     async onUpdate() {},
     async onDelete() {}
   });
-  assert.match(html, /Shelf Workspace.*role="status">Loading shelves….*Album Collection.*Search albums.*Sort by.*All formats.*Test Album/s);
+  assert.match(html, /Shelf Workspace.*role="status">Loading shelves….*Album Collection.*Search albums.*Sort by.*Format filters.*Test Album/s);
   assert.match(html, /<button[^>]*class="collection-add" disabled=""[^>]*>.*New Shelf/);
 });
 

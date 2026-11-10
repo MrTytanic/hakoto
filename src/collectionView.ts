@@ -4,7 +4,7 @@ export type CollectionSort = "collection" | "title-asc" | "title-desc" | "year-n
 
 type CollectionView = {
   query: string;
-  format: string;
+  formats: readonly string[];
   sort: CollectionSort;
 };
 
@@ -15,11 +15,11 @@ function releaseYear(value: string): number | undefined {
   if (/^\d{4}$/.test(year) && year !== "0000") return Number(year);
 }
 
-export function getVisibleAlbums(albums: readonly Album[], { query, format, sort }: CollectionView): Album[] {
+export function getVisibleAlbums(albums: readonly Album[], { query, formats, sort }: CollectionView): Album[] {
   const search = query.trim().toLowerCase();
   const pinned = albums.filter(album => album.pinned);
   const matches = albums.filter(album => !album.pinned &&
-    (!format || album.format === format) &&
+    (!formats.length || formats.includes(album.format)) &&
     (!search || album.title.toLowerCase().includes(search) || album.artist.toLowerCase().includes(search))
   );
 
