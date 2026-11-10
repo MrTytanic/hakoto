@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { alphabeticalDividersPreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
+import { alphabeticalDividersPreference, collectionViewPreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
 
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const bootstrap = index.match(/<script>([\s\S]*?)<\/script>/);
@@ -15,6 +15,19 @@ function useStorage(t, storage) {
     else delete globalThis.localStorage;
   });
 }
+
+test("collection view defaults to grid and persists valid choices", t => {
+  const entries = new Map();
+  useStorage(t, { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) });
+  assert.equal(collectionViewPreference.read(), "grid");
+  for (const view of ["list", "grid"]) {
+    collectionViewPreference.write(view);
+    assert.equal(entries.get("hakoto.collectionView"), view);
+    assert.equal(collectionViewPreference.read(), view);
+  }
+  entries.set("hakoto.collectionView", "invalid");
+  assert.equal(collectionViewPreference.read(), "grid");
+});
 
 test("defaults to dark and reads each saved theme preference", t => {
   const entries = new Map();

@@ -20,6 +20,8 @@ function createPreference<const Value extends string>(key: string, values: reado
 
 export const themePreference = createPreference("hakoto.theme", ["dark", "light", "system"], "dark");
 export const alphabeticalDividersPreference = createPreference("hakoto.alphabeticalDividers", ["off", "on"], "off");
+export const collectionViewPreference = createPreference("hakoto.collectionView", ["grid", "list"], "grid");
+export type CollectionViewPreference = ReturnType<typeof collectionViewPreference.read>;
 export type ThemePreference = ReturnType<typeof themePreference.read>;
 export const systemThemeQuery = "(prefers-color-scheme: dark)";
 
