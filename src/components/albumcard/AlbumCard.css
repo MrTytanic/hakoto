@@ -68,7 +68,7 @@
   position: absolute;
   top: 10px;
   left: 10px;
-  color: var(--artwork-favorite);
+  color: var(--text-strong);
   filter: drop-shadow(0 1px 3px var(--artwork-shadow));
 }
 
