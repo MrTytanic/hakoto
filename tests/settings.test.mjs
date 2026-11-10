@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { alphabeticalDividersPreference, animationsPreference, collectionViewPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
+import { alphabeticalDividersPreference, animationDurationPreference, animationDurations, animationsPreference, collectionViewPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
 
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const bootstrap = index.match(/<script>([\s\S]*?)<\/script>/);
@@ -15,6 +15,26 @@ function useStorage(t, storage) {
     else delete globalThis.localStorage;
   });
 }
+
+test("animation timing persists allowed steps, defaults to 300ms and initializes before rendering", t => {
+  const entries = new Map();
+  useStorage(t, { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) });
+  assert.equal(animationDurationPreference.read(), "300");
+  for (const duration of animationDurations) {
+    animationDurationPreference.write(duration);
+    assert.equal(animationDurationPreference.read(), duration);
+    const properties = new Map();
+    runInNewContext(bootstrap[1], {
+      document: { documentElement: { dataset: {}, style: { setProperty: (key, value) => properties.set(key, value) } } },
+      localStorage: { getItem: key => entries.get(key) ?? null }
+    });
+    assert.equal(properties.get("--animation-duration"), duration + "ms");
+  }
+  for (const invalid of ["0", "125", "550", "invalid"]) {
+    entries.set("hakoto.animationDuration", invalid);
+    assert.equal(animationDurationPreference.read(), "300");
+  }
+});
 
 test("accessibility preferences persist supported values and reject invalid saved values", t => {
   const entries = new Map();

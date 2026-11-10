@@ -23,7 +23,7 @@
   border-radius: 8px;
   background: var(--surface-muted);
   color: var(--text-subtle);
-  transition: opacity .2s;
+  transition: opacity var(--animation-short);
 }
 
 .album-card:hover .album-artwork {

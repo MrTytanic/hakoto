@@ -1,7 +1,8 @@
+import { useState } from "react";
 import { Upload, Trash2 } from "lucide-react";
 import ProfileHeader, { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile, ProfileLoadStatus } from "../types/Profile";
-import type { TextScalePreference, ThemePreference } from "../settings";
+import { animationDurations, type AnimationDurationPreference, type TextScalePreference, type ThemePreference } from "../settings";
 import StorageSettings from "./StorageSettings";
 import "./Settings.css";
 
@@ -20,6 +21,8 @@ type SettingsProps = ProfileSettingsProps & {
   textScale: TextScalePreference;
   onTextScaleChange: (scale: TextScalePreference) => void;
   animationsEnabled: boolean;
+  animationDuration: AnimationDurationPreference;
+  onAnimationDurationChange: (duration: AnimationDurationPreference) => void;
   onAnimationsEnabledChange: (enabled: boolean) => void;
   alphabeticalDividers: boolean;
   onAlphabeticalDividersChange: (enabled: boolean) => void;
@@ -108,8 +111,10 @@ function ProfileSettings({
 
 function Settings({
   theme, onThemeChange, textScale, onTextScaleChange, animationsEnabled, onAnimationsEnabledChange,
+  animationDuration, onAnimationDurationChange,
   alphabeticalDividers, onAlphabeticalDividersChange, ...profileSettings
 }: SettingsProps) {
+  const [previewDuration, setPreviewDuration] = useState<AnimationDurationPreference>();
   return (
     <div className="settings-page">
       <div className="settings-header">
@@ -194,6 +199,26 @@ function Settings({
             Disable animations
           </label>
           <p id="motion-help">Animations also follow your device’s reduced motion preference.</p>
+          <div className="settings-field settings-motion">
+            <label htmlFor="animation-duration">Animation duration</label>
+            <div className="settings-duration-control">
+              <input id="animation-duration" type="range" min="100" max="500" step="50"
+                value={animationDuration} disabled={!animationsEnabled}
+                aria-valuetext={`${animationDuration} milliseconds`}
+                onChange={event => {
+                  const duration = animationDurations.find(value => value === event.target.value);
+                  if (duration) {
+                    onAnimationDurationChange(duration);
+                    setPreviewDuration(duration);
+                  }
+                }} />
+              <output htmlFor="animation-duration">{animationDuration}ms</output>
+            </div>
+            <div className="settings-motion-preview" aria-hidden="true">
+              <span key={previewDuration} className={previewDuration ? "settings-motion-sample" : undefined}
+                onAnimationEnd={() => setPreviewDuration(undefined)} />
+            </div>
+          </div>
         </div>
       </section>
 

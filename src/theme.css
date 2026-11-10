@@ -1,5 +1,9 @@
 :root {
   --text-scale: 1;
+  --animation-duration: 300ms;
+  --animation-short: calc(var(--animation-duration) * .7);
+  --animation-settle: calc(var(--animation-duration) * .8);
+  --animation-long: calc(var(--animation-duration) * 1.25);
   color-scheme: dark;
   --canvas: #141416;
   --surface: #1c1c1f;

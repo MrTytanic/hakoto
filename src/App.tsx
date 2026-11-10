@@ -4,7 +4,7 @@ import type { Profile, ProfileLoadStatus } from "./types/Profile";
 import { encodeArtwork, type ArtworkChange } from "./artwork";
 import type { Album } from "./types/Album";
 import type { ToastData } from "./components/toast/Toast";
-import { alphabeticalDividersPreference, animationsPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference, type ThemePreference } from "./settings";
+import { alphabeticalDividersPreference, animationDurationPreference, animationsPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference, type ThemePreference } from "./settings";
 import "./App.css";
 
 import Sidebar from "./components/Sidebar/Sidebar";
@@ -22,12 +22,15 @@ function App() {
   const [theme, setTheme] = useState(themePreference.read);
   const [textScale, setTextScale] = useState(textScalePreference.read);
   const [animations, setAnimations] = useState(animationsPreference.read);
+  const [animationDuration, setAnimationDuration] = useState(animationDurationPreference.read);
   useLayoutEffect(() => {
     document.documentElement.dataset.textScale = textScale;
     document.documentElement.dataset.animations = animations;
     textScalePreference.write(textScale);
     animationsPreference.write(animations);
-  }, [textScale, animations]);
+    document.documentElement.style.setProperty("--animation-duration", `${animationDuration}ms`);
+    animationDurationPreference.write(animationDuration);
+  }, [textScale, animations, animationDuration]);
   const [alphabeticalDividers, setAlphabeticalDividers] = useState(() => alphabeticalDividersPreference.read() === "on");
 
   useLayoutEffect(() => {
@@ -297,6 +300,8 @@ function App() {
         textScale={textScale}
         onTextScaleChange={setTextScale}
         animationsEnabled={animations === "on"}
+        animationDuration={animationDuration}
+        onAnimationDurationChange={setAnimationDuration}
         onAnimationsEnabledChange={enabled => setAnimations(enabled ? "on" : "off")}
         alphabeticalDividers={alphabeticalDividers}
         onAlphabeticalDividersChange={changeAlphabeticalDividers}

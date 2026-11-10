@@ -19,6 +19,10 @@
         const scale = localStorage.getItem("hakoto.textScale");
         document.documentElement.dataset.textScale = ["90", "100", "115", "130"].includes(scale) ? scale : "100";
         document.documentElement.dataset.animations = localStorage.getItem("hakoto.animations") === "off" ? "off" : "on";
+        const duration = localStorage.getItem("hakoto.animationDuration");
+        if (["100", "150", "200", "250", "300", "350", "400", "450", "500"].includes(duration)) {
+          document.documentElement.style.setProperty("--animation-duration", duration + "ms");
+        }
       } catch {
         // Use default text size and respect device motion preferences.
       }

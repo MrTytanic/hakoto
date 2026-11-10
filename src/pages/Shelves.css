@@ -447,16 +447,16 @@
 
 @media (prefers-reduced-motion: no-preference) {
   .shelf-slot {
-    transition: background-color 140ms ease, border-color 140ms ease;
+    transition: background-color var(--animation-short) ease, border-color var(--animation-short) ease;
   }
 
   .shelf-slot-motion,
   .shelf-trash-target {
-    animation: shelf-settle 160ms ease-out both;
+    animation: shelf-settle var(--animation-settle) ease-out both;
   }
 
   .shelves-page.is-dragging .shelf-slot-button:not([data-slot-empty]) .shelf-slot-motion {
-    animation: shelf-jiggle 250ms ease-in-out infinite alternate;
+    animation: shelf-jiggle var(--animation-long) ease-in-out infinite alternate;
     transform-origin: center 80%;
   }
 

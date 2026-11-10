@@ -8,7 +8,7 @@
   border-right: 1px solid var(--border-subtle);
   overflow-x: hidden;
   overflow-y: auto;
-  transition: width .25s ease;
+  transition: width var(--animation-long) ease;
 }
 
 .sidebar.expanded { width: calc(220px * var(--text-scale)); }
@@ -63,7 +63,7 @@
   text-align: left;
   overflow-wrap: anywhere;
   cursor: pointer;
-  transition: background .2s, color .2s;
+  transition: background var(--animation-short), color var(--animation-short);
 }
 
 .sidebar-button svg { flex-shrink: 0; }

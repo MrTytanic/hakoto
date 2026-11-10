@@ -56,7 +56,7 @@ button {
 
 @media (prefers-reduced-motion: no-preference) {
   .page-enter {
-    animation: page-enter 200ms ease-out;
+    animation: page-enter var(--animation-duration) ease-out;
   }
 }
 
