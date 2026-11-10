@@ -252,7 +252,7 @@
   gap: 24px;
 }
 
-.collection-album-groups h2 {
+.collection-album-groups > section > :is(h2, h3) {
   margin: 0 0 12px;
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border-subtle);

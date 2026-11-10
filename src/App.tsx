@@ -249,7 +249,19 @@ function App() {
       />
     ),
 
-    Shelves: <Shelves profile={profile} />,
+    "Shelf Mode": (
+      <Shelves
+        profile={profile}
+        albums={albums}
+        alphabeticalDividers={alphabeticalDividers}
+        loadStatus={albumLoadStatus}
+        onRetry={retryAlbums}
+        onAdd={addAlbum}
+        onUpdate={updateAlbum}
+        onDelete={deleteAlbum}
+        onNotify={notify}
+      />
+    ),
 
     Favorites: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
       <Favorites
@@ -288,7 +300,7 @@ function App() {
       />
 
       <main className="main-content">
-        {activePage !== "Collection" && albumLoadStatus === "loading" ? (
+        {activePage !== "Collection" && activePage !== "Shelf Mode" && albumLoadStatus === "loading" ? (
           <div role="status" aria-live="polite">
             Loading your collection...
           </div>

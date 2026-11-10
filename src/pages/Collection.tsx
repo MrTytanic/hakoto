@@ -15,10 +15,11 @@ import "./Collection.css";
 
 export type AlbumLoadStatus = "loading" | "ready" | "error";
 
-type CollectionProps = {
+export type CollectionProps = {
   profile: Profile;
   albums: Album[];
   alphabeticalDividers: boolean;
+  embedded?: boolean;
   loadStatus: AlbumLoadStatus;
   onRetry: () => void;
   onAdd: (album: Album) => void;
@@ -44,6 +45,7 @@ function Collection({
   profile,
   albums,
   alphabeticalDividers,
+  embedded = false,
   loadStatus,
   onRetry,
   onAdd,
@@ -85,6 +87,7 @@ function Collection({
   const resultCount = visibleAlbums.length === albums.length
     ? `${albums.length} ${albums.length === 1 ? "album" : "albums"}`
     : `${visibleAlbums.length} of ${albums.length} albums`;
+  const GroupHeading = embedded ? "h3" : "h2";
 
   function clearSearch() {
     setQuery("");
@@ -166,15 +169,17 @@ function Collection({
   return (
     <div className="collection-page">
       <div className="collection-top">
-        <div className="collection-header">
-          <ProfileAvatar picture={profile.profilePicture} />
+        {embedded ? <h2 id="shelf-album-collection-title">Album Collection</h2> : (
+          <div className="collection-header">
+            <ProfileAvatar picture={profile.profilePicture} />
 
-          <h1>
-            {profile.displayName.trim()
-              ? `${profile.displayName.trim()}'s Collection`
-              : "Your Collection"}
-          </h1>
-        </div>
+            <h1>
+              {profile.displayName.trim()
+                ? `${profile.displayName.trim()}'s Collection`
+                : "Your Collection"}
+            </h1>
+          </div>
+        )}
 
         <button
           type="button"
@@ -300,9 +305,9 @@ function Collection({
             const id = `collection-divider-${heading === "#" ? "other" : heading}`;
             return (
               <section key={heading} aria-labelledby={id}>
-                <h2 id={id} aria-label={heading === "#" ? "Numbers, symbols, and other titles" : undefined}>
+                <GroupHeading id={id} aria-label={heading === "#" ? "Numbers, symbols, and other titles" : undefined}>
                   {heading}
-                </h2>
+                </GroupHeading>
                 {renderAlbumGrid(group)}
               </section>
             );

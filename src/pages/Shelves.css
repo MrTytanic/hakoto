@@ -1,0 +1,179 @@
+.shelves-page {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(18px, 4vw, 30px);
+}
+
+.shelf-workspace-heading,
+.shelf-tools {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.shelf-workspace-heading {
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.shelf-workspace-heading h2,
+.shelf-collection .collection-top h2 {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 650;
+}
+
+.shelf-tools {
+  align-items: flex-end;
+  margin-bottom: 10px;
+}
+
+.shelf-tools .album-form-field {
+  flex: 1 1 190px;
+  min-width: 0;
+  margin: 0;
+}
+
+.shelf-tools button {
+  min-height: 40px;
+}
+
+.shelf-workspace .shelf-dimensions {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.shelf-message {
+  display: grid;
+  justify-items: center;
+  gap: 8px;
+  padding: 24px 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+  text-align: center;
+}
+
+.shelf-message h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.shelf-message p,
+.shelf-dialog p {
+  overflow-wrap: anywhere;
+}
+
+.shelf-scroll {
+  max-height: clamp(160px, 42vh, 440px);
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.shelf-grid {
+  width: max-content;
+  border-spacing: 4px;
+}
+
+.shelf-slot {
+  min-width: 70px;
+  height: 108px;
+  padding: 6px;
+  border: 1px solid var(--border-subtle);
+  border-bottom: 3px solid var(--border);
+  border-radius: 4px;
+  background: var(--surface);
+  text-align: center;
+  vertical-align: bottom;
+}
+
+.shelf-empty-slot {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.shelf-spine {
+  display: block;
+  width: 26px;
+  height: 88px;
+  margin-inline: auto;
+  overflow: hidden;
+  padding-block: 5px;
+  border: 1px solid var(--focus);
+  border-radius: 3px;
+  background: var(--navigation-active);
+  color: var(--text-strong);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 24px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.shelf-grid[data-orientation="horizontal"] .shelf-slot {
+  min-width: 132px;
+  height: 44px;
+}
+
+.shelf-grid[data-orientation="horizontal"] .shelf-spine {
+  width: 118px;
+  height: 24px;
+  padding: 0 5px;
+  line-height: 22px;
+  writing-mode: horizontal-tb;
+  transform: none;
+}
+
+.shelf-collection {
+  padding-top: 18px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.shelf-collection .collection-top {
+  margin-bottom: 14px;
+}
+
+.shelf-dialog {
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  color: var(--text);
+}
+
+.shelf-dialog::backdrop {
+  background: var(--overlay);
+}
+
+.shelf-dialog-fields {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.shelf-workspace .shelf-error,
+.shelf-dialog .shelf-error {
+  color: var(--danger);
+}
+
+.shelf-dialog .shelf-delete-confirm {
+  background: var(--danger-action);
+  color: var(--danger-action-text);
+}
+
+.shelf-dialog .shelf-delete-confirm:hover {
+  background: var(--danger-action-hover);
+}
+
+.shelf-workspace :is(button, select, .shelf-scroll):focus-visible,
+.shelf-dialog :is(button, input, select):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}

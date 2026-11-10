@@ -8,7 +8,7 @@ import "./Sidebar.css";
 
 const navigation = [
   { label: "Collection", icon: Library },
-  { label: "Shelves", icon: Layers3 },
+  { label: "Shelf Mode", icon: Layers3 },
   { label: "Favorites", icon: Heart },
   { label: "Lists", icon: ListMusic },
   { label: "Wishlist", icon: Bookmark },
