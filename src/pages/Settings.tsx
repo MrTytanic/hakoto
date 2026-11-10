@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Upload, Trash2 } from "lucide-react";
 import ProfileHeader, { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile, ProfileLoadStatus } from "../types/Profile";
@@ -114,7 +113,6 @@ function Settings({
   animationDuration, onAnimationDurationChange,
   alphabeticalDividers, onAlphabeticalDividersChange, ...profileSettings
 }: SettingsProps) {
-  const [previewDuration, setPreviewDuration] = useState<AnimationDurationPreference>();
   return (
     <div className="settings-page">
       <div className="settings-header">
@@ -209,14 +207,9 @@ function Settings({
                   const duration = animationDurations.find(value => value === event.target.value);
                   if (duration) {
                     onAnimationDurationChange(duration);
-                    setPreviewDuration(duration);
                   }
                 }} />
               <output htmlFor="animation-duration">{animationDuration}ms</output>
-            </div>
-            <div className="settings-motion-preview" aria-hidden="true">
-              <span key={previewDuration} className={previewDuration ? "settings-motion-sample" : undefined}
-                onAnimationEnd={() => setPreviewDuration(undefined)} />
             </div>
           </div>
         </div>
