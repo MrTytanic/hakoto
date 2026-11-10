@@ -96,7 +96,10 @@ function App() {
 
   function notifyUndo(message: string, undo: () => Promise<void>, discard?: () => Promise<void>) {
     const id = crypto.randomUUID();
-    setNotifications(prev => [...prev, { id, message, type: "success", undo }]);
+    setNotifications(prev => {
+      const recent = new Set(prev.filter(item => item.undo).slice(-2).map(item => item.id));
+      return [...prev.filter(item => !item.undo || recent.has(item.id)), { id, message, type: "success", undo }];
+    });
     if (discard) undoCleanup.current.set(id, discard);
     notificationTimers.current.set(id, setTimeout(() => dismissNotification(id), 30000));
   }
