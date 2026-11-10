@@ -286,7 +286,7 @@ function App() {
 
     Wishlist: <Wishlist profile={profile} />,
     Lists: <Lists profile={profile} />,
-    Statistics: <Statistics profile={profile} />,
+    Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : <Statistics profile={profile} albums={albums} />,
     Settings: (
       <Settings
         profile={profile}

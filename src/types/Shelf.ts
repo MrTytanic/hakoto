@@ -5,7 +5,7 @@ export type ShelfSettings = {
   orientation: "vertical" | "horizontal";
 };
 
-export type Shelf = ShelfSettings & { id: number };
+export type Shelf = ShelfSettings & { id: number; occupied: number };
 
 export type ShelfSlot = {
   row: number;

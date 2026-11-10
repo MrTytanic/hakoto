@@ -111,6 +111,7 @@ impl ShelfSettings {
 #[derive(Debug, PartialEq, Eq, Serialize)]
 pub struct Shelf {
     pub id: i64,
+    pub occupied: i64,
     #[serde(flatten)]
     pub settings: ShelfSettings,
 }
@@ -149,11 +150,13 @@ pub enum PlacementChange {
     },
 }
 
-const SELECT_SHELVES: &str = "SELECT id, name, rows, columns, orientation FROM shelves";
+const SELECT_SHELVES: &str = "SELECT id, name, rows, columns, orientation,
+    (SELECT count(*) FROM shelf_placements WHERE shelf_id = shelves.id) FROM shelves";
 
 fn read_shelf(row: &Row<'_>) -> rusqlite::Result<Shelf> {
     Ok(Shelf {
         id: row.get(0)?,
+        occupied: row.get(5)?,
         settings: ShelfSettings {
             name: row.get(1)?,
             rows: row.get(2)?,
@@ -223,6 +226,7 @@ pub fn create_shelf(connection: &Connection, settings: ShelfSettings) -> Result<
         .map_err(|error| error.to_string())?;
     Ok(Shelf {
         id: connection.last_insert_rowid(),
+        occupied: 0,
         settings,
     })
 }
@@ -268,8 +272,9 @@ pub fn update_shelf(
     if updated == 0 {
         return Err(format!("Shelf {id} does not exist."));
     }
+    let shelf = get_shelf(&transaction, id)?;
     transaction.commit().map_err(|error| error.to_string())?;
-    Ok(Shelf { id, settings })
+    Ok(shelf)
 }
 
 pub fn delete_shelf(connection: &Connection, id: i64) -> Result<usize> {
@@ -406,6 +411,8 @@ mod tests {
         assert_ne!(first.id, second.id);
         update_placements(&mut db, first.id, vec![set(1, 2, "one")]).unwrap();
         update_placements(&mut db, second.id, vec![set(0, 0, "one")]).unwrap();
+        let second = get_shelf(&db, second.id).unwrap();
+        assert_eq!(second.occupied, 1);
         let updated = update_shelf(
             &mut db,
             first.id,
@@ -415,6 +422,7 @@ mod tests {
             },
         )
         .unwrap();
+        assert_eq!(updated.occupied, 1);
         drop(db);
 
         let mut db = database::initialize_database(directory.path(), None).unwrap();
@@ -450,7 +458,9 @@ mod tests {
         update_placements(&mut db, shelf.id, vec![set(1, 2, "one")]).unwrap();
         let error = update_shelf(&mut db, shelf.id, settings("Would shrink", 1, 2)).unwrap_err();
         assert!(error.contains("row 2, column 3"));
-        assert_eq!(get_shelf(&db, shelf.id).unwrap(), shelf);
+        let unchanged = get_shelf(&db, shelf.id).unwrap();
+        assert_eq!(unchanged.settings, shelf.settings);
+        assert_eq!(unchanged.occupied, 1);
 
         let insert = "INSERT INTO shelf_placements VALUES (?1, ?2, ?3, ?4)";
         assert!(db.execute(insert, params![shelf.id, 1, 2, "one"]).is_err());
