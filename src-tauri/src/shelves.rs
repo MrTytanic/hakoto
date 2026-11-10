@@ -366,6 +366,11 @@ mod tests {
             release_year: "2000".into(),
             artwork: None,
             favorite: true,
+            pinned: false,
+            date_added: None,
+            condition: None,
+            record_type: None,
+            disc_size: None,
         };
         database::save_album(connection, directory, album, None).unwrap();
     }

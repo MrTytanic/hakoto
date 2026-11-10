@@ -5,6 +5,7 @@ import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { ArtworkChange } from "../artwork";
 import type { Album } from "../types/Album";
+import { getVisibleAlbums } from "../collectionView";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import "./Collection.css";
@@ -19,7 +20,8 @@ type FavoritesProps = {
 
 function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const favorites = albums.filter(album => album.favorite);
+  const [initialAction, setInitialAction] = useState<"edit" | "delete">();
+  const favorites = getVisibleAlbums(albums.filter(album => album.favorite), { query: "", format: "", sort: "collection" });
   const selectedAlbum = favorites.find(album => album.id === selectedId);
 
   return (
@@ -48,7 +50,13 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesP
             <AlbumCard
               key={album.id}
               album={album}
-              onClick={() => setSelectedId(album.id)}
+              onClick={() => { setInitialAction(undefined); setSelectedId(album.id); }}
+              onAction={async action => {
+                if (action === "edit" || action === "delete") {
+                  setInitialAction(action);
+                  setSelectedId(album.id);
+                } else await onUpdate({ ...album, [action]: !album[action] });
+              }}
             />
           ))}
         </div>
@@ -58,6 +66,7 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesP
         <AlbumDetails
           key={selectedAlbum.id}
           album={selectedAlbum}
+          initialAction={initialAction}
           onUpdate={onUpdate}
           onDelete={onDelete}
           onError={message => onNotify(message, "error")}

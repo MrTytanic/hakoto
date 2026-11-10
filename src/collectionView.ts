@@ -17,11 +17,17 @@ function releaseYear(value: string): number | undefined {
 
 export function getVisibleAlbums(albums: readonly Album[], { query, format, sort }: CollectionView): Album[] {
   const search = query.trim().toLowerCase();
-  const matches = albums.filter(album =>
+  const pinned = albums.filter(album => album.pinned);
+  const matches = albums.filter(album => !album.pinned &&
     (!format || album.format === format) &&
     (!search || album.title.toLowerCase().includes(search) || album.artist.toLowerCase().includes(search))
   );
 
+  const sorted = sortMatches(matches, sort);
+  return [...pinned, ...sorted];
+}
+
+function sortMatches(matches: Album[], sort: CollectionSort) {
   switch (sort) {
     case "title-asc":
       return matches.sort((a, b) => titleOrder.compare(a.title, b.title));
@@ -47,7 +53,9 @@ export function groupVisibleAlbums(albums: readonly Album[], sort: CollectionSor
 
   // Albums already reflect the active filters and sort order.
   const buckets = new Map<string, Album[]>();
+  const pinned = albums.filter(album => album.pinned);
   for (const album of albums) {
+    if (album.pinned) continue;
     const initial = album.title.trimStart().normalize("NFD").match(/^[a-z]/i)?.[0];
     const heading = initial?.toUpperCase() ?? "#";
     const group = buckets.get(heading);
@@ -61,5 +69,6 @@ export function groupVisibleAlbums(albums: readonly Album[], sort: CollectionSor
   groups.sort((a, b) => a.heading.charCodeAt(0) - b.heading.charCodeAt(0));
   if (sort === "title-desc") groups.reverse();
   if (other) groups.push({ heading: "#", albums: other });
+  if (pinned.length) groups.unshift({ heading: "Pinned", albums: pinned });
   return groups;
 }

@@ -7,6 +7,7 @@ import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
 import { getVisibleAlbums, groupVisibleAlbums, type CollectionSort } from "../collectionView";
+import AlbumMetadataFields, { albumMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import { ArtworkPicker } from "../components/Artwork";
@@ -74,6 +75,8 @@ function Collection({
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [albumActionMode, setAlbumActionMode] = useState<"edit" | "delete">();
+  const [metadata, setMetadata] = useState<AlbumMetadata>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const [title, setTitle] = useState("");
@@ -113,6 +116,7 @@ function Collection({
     setArtist("");
     setFormat("CD");
     setReleaseYear("");
+    setMetadata({});
     setArtwork(null);
   }
 
@@ -135,7 +139,8 @@ function Collection({
       format,
       releaseYear,
       artwork: null,
-      favorite: false
+      favorite: false,
+      ...albumMetadata(metadata, format)
     };
 
     savingRef.current = true;
@@ -160,16 +165,29 @@ function Collection({
     notify(`"${album.title}" added to your collection.`, "success");
   }
 
+  function openAlbum(id: string, action?: "edit" | "delete") {
+    setAlbumActionMode(action);
+    setSelectedId(id);
+  }
+
+  function renderAlbumCard(album: Album) {
+    return <AlbumCard key={album.id} album={album} onClick={() => openAlbum(album.id)}
+      onPointerDown={onAlbumPointerDown ? event => onAlbumPointerDown(event, album) : undefined}
+      onAction={async action => {
+        if (action === "edit" || action === "delete") openAlbum(album.id, action);
+        else await onUpdate({ ...album, [action]: !album[action] });
+      }} />;
+  }
+
   function renderAlbumGrid(items: readonly Album[]) {
     return (
       <div className="album-grid">
         {items.map(album => albumAction ? (
           <div key={album.id} className="shelf-album-card">
-            <AlbumCard album={album} onClick={() => setSelectedId(album.id)}
-              onPointerDown={onAlbumPointerDown ? event => onAlbumPointerDown(event, album) : undefined} />
+            {renderAlbumCard(album)}
             {albumAction(album)}
           </div>
-        ) : <AlbumCard key={album.id} album={album} onClick={() => setSelectedId(album.id)} />)}
+        ) : renderAlbumCard(album))}
       </div>
     );
   }
@@ -327,6 +345,7 @@ function Collection({
         <AlbumDetails
           key={selectedAlbum.id}
           album={selectedAlbum}
+          initialAction={albumActionMode}
           onUpdate={onUpdate}
           onDelete={onDelete}
           onError={notify}
@@ -414,6 +433,9 @@ function Collection({
                     />
                   </div>
                 </div>
+
+                <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
+                <p className="album-date-note">Date added is recorded automatically.</p>
 
                 <ArtworkPicker
                   artwork={artwork}

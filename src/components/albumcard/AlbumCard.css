@@ -67,7 +67,92 @@
 .album-card .album-favorite-indicator {
   position: absolute;
   top: 10px;
-  right: 10px;
+  left: 10px;
   color: var(--artwork-favorite);
   filter: drop-shadow(0 1px 3px var(--artwork-shadow));
+}
+
+.album-card-frame {
+  position: relative;
+  width: 100%;
+  min-width: 0;
+  max-width: 240px;
+}
+
+.album-pin-indicator {
+  margin-inline-start: 6px;
+  color: var(--text-muted);
+  vertical-align: middle;
+}
+
+.album-card-actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  opacity: 0;
+}
+
+.album-card-frame:is(:hover, :focus-within) .album-card-actions,
+.album-card-actions[open] {
+  opacity: 1;
+}
+
+.album-card-actions[open] {
+  z-index: 2;
+}
+
+.album-card-actions summary {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  margin-left: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  color: var(--text);
+  list-style: none;
+  cursor: pointer;
+}
+
+.album-card-actions summary::-webkit-details-marker {
+  display: none;
+}
+
+.album-card-action-list {
+  display: grid;
+  min-width: 120px;
+  margin-top: 4px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface-raised);
+  box-shadow: 0 4px 16px var(--shadow);
+}
+
+.album-card-action-list button {
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-align: start;
+  cursor: pointer;
+}
+
+.album-card-action-list button:last-child {
+  color: var(--danger);
+}
+
+.album-card-action-list button:hover {
+  background: var(--navigation-active);
+}
+
+.album-card-actions :is(summary, button):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+@media (hover: none) {
+  .album-card-actions { opacity: 1; }
 }

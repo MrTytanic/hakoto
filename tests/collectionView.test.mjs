@@ -101,3 +101,12 @@ test("pauses dividers in both year sorts so the chronological order stays intact
     assert.equal(visible[0].id, sort === "year-newest" ? "blank" : "zebra");
   }
 });
+
+test("pinned albums bypass search and format filters and precede sorted results and dividers", () => {
+  const pinned = { ...albums[5], pinned: true };
+  const input = [...albums.slice(0, 5), pinned];
+  const results = getVisibleAlbums(input, { query: "Echoes", format: "CD", sort: "title-asc" });
+  assert.deepEqual(results.map(album => album.id), ["h", "m", "z"]);
+  assert.deepEqual(groupVisibleAlbums(results, "title-asc").map(group => group.heading), ["Pinned", "M", "Z"]);
+  assert.deepEqual(getVisibleAlbums(input, { ...defaults, query: "no match", sort: "year-newest" }), [pinned]);
+});

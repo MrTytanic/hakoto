@@ -486,3 +486,8 @@
     padding: 18px;
   }
 }
+
+.album-date-note {
+  color: var(--text-muted);
+  font-size: 13px;
+}
