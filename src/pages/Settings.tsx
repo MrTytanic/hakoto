@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { Upload, Trash2 } from "lucide-react";
 import ProfileHeader, { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile, ProfileLoadStatus } from "../types/Profile";
@@ -21,13 +20,6 @@ type SettingsProps = ProfileSettingsProps & {
   alphabeticalDividers: boolean;
   onAlphabeticalDividersChange: (enabled: boolean) => void;
 };
-
-const sections = [
-  { title: "Profile", description: "Customize your display name and picture." },
-  { title: "Appearance", description: "Choose how Hakoto looks on this device." },
-  { title: "Collection", description: "Find and organize your albums." },
-  { title: "Storage", description: "See how Hakoto stores your data." }
-] as const;
 
 const themeOptions = [
   { value: "dark", label: "Dark" },
@@ -113,8 +105,6 @@ function ProfileSettings({
 function Settings({
   theme, onThemeChange, alphabeticalDividers, onAlphabeticalDividersChange, ...profileSettings
 }: SettingsProps) {
-  const [section, setSection] = useState<(typeof sections)[number]>(sections[0]);
-
   return (
     <div className="settings-page">
       <div className="settings-header">
@@ -125,69 +115,68 @@ function Settings({
         />
       </div>
 
-      <nav className="settings-navigation" aria-label="Settings sections">
-        {sections.map(item => (
-          <button
-            key={item.title}
-            type="button"
-            aria-current={section === item ? "true" : undefined}
-            aria-controls="settings-panel"
-            onClick={() => setSection(item)}
-          >
-            {item.title}
-          </button>
-        ))}
-      </nav>
-
-      <section id="settings-panel" className="settings-section" aria-labelledby="settings-section-title">
+      <section className="settings-section" aria-labelledby="settings-profile">
         <div className="settings-section-heading">
-          <h2 id="settings-section-title">{section.title}</h2>
-          <p>{section.description}</p>
+          <h2 id="settings-profile">Profile</h2>
+          <p>Customize your display name and picture.</p>
         </div>
+        <ProfileSettings {...profileSettings} />
+      </section>
 
-        {section.title === "Profile" && <ProfileSettings {...profileSettings} />}
+      <section className="settings-section" aria-labelledby="settings-appearance">
+        <div className="settings-section-heading">
+          <h2 id="settings-appearance">Appearance</h2>
+          <p>Choose how Hakoto looks on this device.</p>
+        </div>
+        <div className="settings-card">
+          <fieldset className="settings-theme" aria-describedby="theme-help">
+            <legend>Theme</legend>
+            <p id="theme-help">System follows your device’s light or dark appearance.</p>
+            <div className="settings-theme-options">
+              {themeOptions.map(option => (
+                <label key={option.value}>
+                  <input
+                    type="radio"
+                    name="theme"
+                    value={option.value}
+                    checked={theme === option.value}
+                    onChange={() => onThemeChange(option.value)}
+                  />
+                  {option.label}
+                </label>
+              ))}
+            </div>
+          </fieldset>
+        </div>
+      </section>
 
-        {section.title === "Appearance" && (
-          <div className="settings-card">
-            <fieldset className="settings-theme" aria-describedby="theme-help">
-              <legend>Theme</legend>
-              <p id="theme-help">System follows your device’s light or dark appearance.</p>
-              <div className="settings-theme-options">
-                {themeOptions.map(option => (
-                  <label key={option.value}>
-                    <input
-                      type="radio"
-                      name="theme"
-                      value={option.value}
-                      checked={theme === option.value}
-                      onChange={() => onThemeChange(option.value)}
-                    />
-                    {option.label}
-                  </label>
-                ))}
-              </div>
-            </fieldset>
-          </div>
-        )}
+      <section className="settings-section" aria-labelledby="settings-collection">
+        <div className="settings-section-heading">
+          <h2 id="settings-collection">Collection</h2>
+          <p>Find and organize your albums.</p>
+        </div>
+        <div className="settings-card">
+          <label className="settings-checkbox">
+            <input
+              type="checkbox"
+              checked={alphabeticalDividers}
+              aria-describedby="alphabetical-dividers-help"
+              onChange={e => onAlphabeticalDividersChange(e.currentTarget.checked)}
+            />
+            Alphabetical Dividers
+          </label>
+          <p id="alphabetical-dividers-help">
+            Group albums by the first letter of their title. Sorting by release year temporarily hides the dividers.
+          </p>
+        </div>
+      </section>
 
-        {section.title === "Collection" && (
-          <div className="settings-card">
-            <label className="settings-checkbox">
-              <input
-                type="checkbox"
-                checked={alphabeticalDividers}
-                aria-describedby="alphabetical-dividers-help"
-                onChange={e => onAlphabeticalDividersChange(e.currentTarget.checked)}
-              />
-              Alphabetical Dividers
-            </label>
-            <p id="alphabetical-dividers-help">
-              Group albums by the first letter of their title. Sorting by release year temporarily hides the dividers.
-            </p>
-          </div>
-        )}
-
-        {section.title === "Storage" && <StorageSettings />}
+      <section className="settings-section" aria-labelledby="settings-storage">
+        <div className="settings-section-heading">
+          <h2 id="settings-storage">Storage</h2>
+          <p>See how Hakoto stores your data.</p>
+        </div>
+        <StorageSettings profilePicture={profileSettings.profile.profilePicture} />
       </section>
     </div>
   );

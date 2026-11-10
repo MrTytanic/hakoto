@@ -24,11 +24,12 @@ function formatSize(bytes: number) {
   return `${sizeFormat.format(bytes)} ${units[unit]}`;
 }
 
-export default function StorageSettings() {
+export default function StorageSettings({ profilePicture }: { profilePicture: string | null }) {
   const [info, setInfo] = useState<StorageInfo>();
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -37,7 +38,7 @@ export default function StorageSettings() {
       failure => { if (!cancelled) setError(String(failure)); }
     );
     return () => { cancelled = true; };
-  }, []);
+  }, [attempt, profilePicture]);
 
   async function openLocation(artwork: boolean) {
     setError("");
@@ -59,7 +60,7 @@ export default function StorageSettings() {
           setInfo(await invoke<StorageInfo>("get_storage_info"));
         } catch (failure) {
           setInfo(undefined);
-          setError(`Storage moved, but usage could not be refreshed: ${String(failure)}. Reopen Storage to retry.`);
+          setError(`Storage moved, but usage could not be refreshed: ${String(failure)}.`);
         }
       }
     } catch (failure) {
@@ -107,20 +108,29 @@ export default function StorageSettings() {
             <button type="button" className="settings-upload" disabled={busy} onClick={() => openLocation(true)}>Open artwork directory</button>
           </div>
 
-          <p>
-            Hakoto verifies a new copy of the database and images in a fresh folder before switching locations.
-            The previous files stay in place as a recovery copy and use disk space.
-          </p>
-          {info.previousLocation && <p>Previous location <code>{info.previousLocation}</code></p>}
-          <div className="settings-avatar-controls">
-            <button type="button" className="settings-upload" disabled={busy} onClick={() => moveStorage(false)}>Choose storage folder</button>
-            <button type="button" className="settings-upload" disabled={busy || info.isDefault} onClick={() => moveStorage(true)}>Restore default location</button>
-          </div>
+          <section className="storage-advanced" aria-labelledby="storage-advanced-title">
+            <h3 id="storage-advanced-title">Advanced storage actions</h3>
+            <p>
+              Hakoto verifies a new copy of the database and images in a fresh folder before switching locations.
+              The previous files stay in place as a recovery copy and use disk space.
+            </p>
+            {info.previousLocation && <p>Previous location <code>{info.previousLocation}</code></p>}
+            <div className="settings-avatar-controls">
+              <button type="button" className="settings-upload" disabled={busy} onClick={() => moveStorage(false)}>Choose storage folder</button>
+              <button type="button" className="settings-upload" disabled={busy || info.isDefault} onClick={() => moveStorage(true)}>Restore default location</button>
+            </div>
+          </section>
         </>
-      ) : !error && !status && <p role="status">Loading storage usage…</p>}
+      ) : !error && <p role="status">Loading storage usage…</p>}
       {busy && <p role="status">Preparing the new storage location…</p>}
       {status && <p role="status">{status}</p>}
       {error && <p className="storage-error" role="alert">{error}</p>}
+      {!info && error && (
+        <button type="button" className="settings-upload" onClick={() => {
+          setError("");
+          setAttempt(value => value + 1);
+        }}>Retry storage usage</button>
+      )}
     </div>
   );
 }
