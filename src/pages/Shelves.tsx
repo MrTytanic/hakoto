@@ -1,14 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
-import { Disc3, Grip, Layers3, Plus } from "lucide-react";
+import { Disc3, Grip, Layers3, Plus, Trash2 } from "lucide-react";
 import { artworkUrl } from "../artwork";
 import { ArtworkImage } from "../components/Artwork";
 import ProfileHeader from "../components/ProfileHeader";
 import ShelfDialog, { type ShelfDialogAction } from "../components/ShelfDialog";
 import ShelfGrid from "../components/ShelfGrid";
 import { dropHint, dropKind, placementIndex, saveShelfDrop, slotDescription, slotKey, type ArrangementSource } from "../shelfArrangement";
-import type { Shelf, ShelfLayout, ShelfPlacement, ShelfSettings, ShelfSlot } from "../types/Shelf";
+import type { Shelf, ShelfLayout, ShelfPlacement, ShelfPlacementChange, ShelfSettings, ShelfSlot } from "../types/Shelf";
 import { useShelfDrag } from "../useShelfDrag";
 import Collection, { type CollectionProps } from "./Collection";
 import "./Shelves.css";
@@ -50,13 +50,18 @@ export default function Shelves(collection: CollectionProps) {
   const announceCancel = useCallback(() => setMessage({ text: "Arrangement canceled." }), []);
   const pointer = useShelfDrag(workspace, {
     onStart: () => { setPicked(null); setMessage({ text: "" }); },
-    onDrop: (source, target) => { void place(source, target); },
+    onDrop: (source, target) => {
+      if (target === "trash") void removePlacement(source);
+      else if (target) void place(source, target);
+      else announceCancel();
+    },
     onCancel: announceCancel
   });
   const activeSource = pointer.drag?.source ?? picked;
   const dragAlbum = pointer.drag && albumsById.get(pointer.drag.source.albumId);
-  const hoverKind = pointer.drag?.target
-    ? dropKind(pointer.drag.source, pointer.drag.target, slots.get(slotKey(pointer.drag.target)))
+  const hovered = pointer.drag?.target;
+  const hoverKind = pointer.drag && hovered && hovered !== "trash"
+    ? dropKind(pointer.drag.source, hovered, slots.get(slotKey(hovered)))
     : undefined;
 
   useEffect(() => {
@@ -101,14 +106,13 @@ export default function Shelves(collection: CollectionProps) {
     if (!source.slot) empty?.focus();
   }
 
-  async function place(source: ArrangementSource, target: ShelfSlot | null) {
+  async function saveArrangement(save: (write: (changes: ShelfPlacementChange[]) => Promise<ShelfPlacement[]>) =>
+    Promise<{ error: string } | { placements: ShelfPlacement[]; text: string }>) {
     if (!canArrange || !selected || layoutKey === undefined || savingRef.current) return;
-    const album = albumsById.get(source.albumId);
-    if (!album) return;
     savingRef.current = true;
     setSaving(true);
     try {
-      const result = await saveShelfDrop(selected, slots, source, target, changes =>
+      const result = await save(changes =>
         invoke<ShelfPlacement[]>("update_shelf_placements", { shelfId: selected.id, changes })
       );
       if ("error" in result) {
@@ -119,13 +123,34 @@ export default function Shelves(collection: CollectionProps) {
         ? { key: layoutKey, result: { status: "ready", value: result.placements } }
         : current);
       setPicked(null);
-      setMessage({ text: result.kind === "swap" ? "Albums swapped." : `${album.title} ${result.kind === "move" ? "moved" : "placed"} in ${slotDescription(result.target)}.` });
+      setMessage({ text: result.text });
     } catch (failure) {
       setMessage({ text: `Couldn’t save the arrangement. The shelf is unchanged. ${String(failure)}`, error: true });
     } finally {
       savingRef.current = false;
       setSaving(false);
     }
+  }
+
+  function place(source: ArrangementSource, target: ShelfSlot) {
+    const album = albumsById.get(source.albumId);
+    if (!selected || !album) return;
+    return saveArrangement(async write => {
+      const result = await saveShelfDrop(selected, slots, source, target, write);
+      if ("error" in result) return result;
+      return {
+        placements: result.placements,
+        text: result.kind === "swap" ? "Albums swapped." : `${album.title} ${result.kind === "move" ? "moved" : "placed"} in ${slotDescription(result.target)}.`
+      };
+    });
+  }
+
+  function removePlacement({ slot, albumId }: ArrangementSource) {
+    if (!slot || slots.get(slotKey(slot)) !== albumId) return;
+    return saveArrangement(async write => ({
+      placements: await write([{ ...slot, kind: "clear" }]),
+      text: "Album removed from this shelf."
+    }));
   }
 
   function openDialog(action: ShelfDialogAction) {
@@ -199,7 +224,7 @@ export default function Shelves(collection: CollectionProps) {
               </p>
               {canArrange && (
                 <p id="shelf-arrange-help" className="shelf-arrange-help">
-                  Drag an album or a filled slot. For click or keyboard placement, use Place or select a filled slot, then choose a destination. Arrow keys move between slots, Enter selects, and Escape cancels.
+                  Drag an album or a filled slot. For click or keyboard placement, use Place or select a filled slot, then choose a destination. Arrow keys move between slots, Enter selects, and Escape cancels. To remove a shelved album, drag it to the trash or open its slot menu with right-click or Shift+F10.
                 </p>
               )}
               <p className={`shelf-arrange-status${message.error && !saving ? " shelf-error" : ""}`} role="status">
@@ -209,7 +234,8 @@ export default function Shelves(collection: CollectionProps) {
                 layout.status === "error" ? <ShelfLoadError message={layout.message} onRetry={() => setPlacementRevision(value => value + 1)} /> : (
                   <ShelfGrid key={layoutKey} shelf={selected} placements={layout.value} albums={collection.albums} albumsLoading={collection.loadStatus === "loading"}
                     arrangement={canArrange ? {
-                      source: activeSource, hovered: pointer.drag?.target ?? null, saving,
+                      source: activeSource, hovered: hovered === "trash" ? null : hovered ?? null, saving,
+                      dragging: Boolean(pointer.drag), onRemove: source => { void removePlacement(source); },
                       onSlot: (slot, albumId) => {
                         if (savingRef.current) return;
                         if (picked) void place(picked, slot);
@@ -252,6 +278,11 @@ export default function Shelves(collection: CollectionProps) {
       </section>
 
       {dialog && <ShelfDialog action={dialog} onClose={() => setDialog(undefined)} onSave={saveShelf} onDelete={deleteShelf} />}
+      {pointer.drag?.source.slot && createPortal(
+        <div ref={pointer.trashRef} className="shelf-trash-target" data-active={hovered === "trash" || undefined} aria-hidden="true">
+          <Trash2 size={19} /> Remove from this shelf
+        </div>, document.body
+      )}
       {dragAlbum && createPortal(
         <div ref={pointer.previewRef} className="shelf-drag-preview" aria-hidden="true" data-drop-kind={hoverKind}>
           <div className="shelf-drag-cover">
@@ -262,7 +293,7 @@ export default function Shelves(collection: CollectionProps) {
             <span>{dragAlbum.artist}</span>
             <span>{dragAlbum.format}</span>
           </div>
-          <span className="shelf-drag-hint">{dropHint(hoverKind)}</span>
+          <span className="shelf-drag-hint">{hovered === "trash" ? "Release to remove from this shelf" : hoverKind ? dropHint(hoverKind) : "Release here to cancel"}</span>
         </div>, document.body
       )}
     </div>
