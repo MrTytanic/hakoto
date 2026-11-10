@@ -1,7 +1,7 @@
 
-import { useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, ChevronDown, Disc3, Plus, Search, X } from "lucide-react";
+import { AlertCircle, Disc3, Plus, Search, SlidersHorizontal, X } from "lucide-react";
 import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
@@ -59,13 +59,16 @@ function Collection({
   onNotify
 }: CollectionProps) {
   const [query, setQuery] = useState("");
-  const [formatFilter, setFormatFilter] = useState("");
+  const [formats, setFormats] = useState<string[]>([]);
+  const filterId = useId();
+  const filterButton = useRef<HTMLButtonElement>(null);
+  const filterPanel = useRef<HTMLDivElement>(null);
   const [sort, setSort] = useState<CollectionSort>("collection");
   const searchRef = useRef<HTMLInputElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
   const visibleAlbums = useMemo(
-    () => getVisibleAlbums(albums, { query, format: formatFilter, sort }),
-    [albums, query, formatFilter, sort]
+    () => getVisibleAlbums(albums, { query, formats, sort }),
+    [albums, query, formats, sort]
   );
   const albumGroups = useMemo(
     () => alphabeticalDividers ? groupVisibleAlbums(visibleAlbums, sort) : null,
@@ -90,11 +93,45 @@ function Collection({
 
   const selectedAlbum = albums.find(album => album.id === selectedId);
   const controlsDisabled = loadStatus !== "ready" || albums.length === 0;
-  const hasFilters = Boolean(query || formatFilter || sort !== "collection");
+  const hasFilters = Boolean(query || formats.length || sort !== "collection");
   const resultCount = visibleAlbums.length === albums.length
     ? `${albums.length} ${albums.length === 1 ? "album" : "albums"}`
     : `${visibleAlbums.length} of ${albums.length} albums`;
   const GroupHeading = embedded ? "h3" : "h2";
+
+  useEffect(() => {
+    const panel = filterPanel.current;
+    const button = filterButton.current;
+    if (!panel || !button) return;
+    const scroller = button.closest("main");
+
+    function position() {
+      if (!panel?.matches(":popover-open") || !button) return;
+      const anchor = button.getBoundingClientRect();
+      const viewport = scroller?.getBoundingClientRect();
+      if (anchor.bottom <= Math.max(0, viewport?.top ?? 0) ||
+          anchor.top >= Math.min(window.innerHeight, viewport?.bottom ?? Infinity)) {
+        panel.hidePopover();
+        return;
+      }
+      const below = window.innerHeight - anchor.bottom - 14;
+      const above = anchor.top - 14;
+      const opensDown = below >= 280 || below >= above;
+      panel.style.left = Math.max(8, Math.min(anchor.right - panel.offsetWidth, window.innerWidth - panel.offsetWidth - 8)) + "px";
+      panel.style.top = opensDown ? anchor.bottom + 6 + "px" : "auto";
+      panel.style.bottom = opensDown ? "auto" : window.innerHeight - anchor.top + 6 + "px";
+      panel.style.maxHeight = Math.max(0, opensDown ? below : above) + "px";
+    }
+
+    panel.addEventListener("toggle", position);
+    window.addEventListener("resize", position);
+    window.addEventListener("scroll", position, true);
+    return () => {
+      panel.removeEventListener("toggle", position);
+      window.removeEventListener("resize", position);
+      window.removeEventListener("scroll", position, true);
+    };
+  }, []);
 
   function clearSearch() {
     setQuery("");
@@ -102,8 +139,9 @@ function Collection({
   }
 
   function resetFilters() {
+    filterPanel.current?.hidePopover();
     clearSearch();
-    setFormatFilter("");
+    setFormats([]);
     setSort("collection");
   }
 
@@ -241,21 +279,47 @@ function Collection({
             </div>
           </div>
 
-          <div className="album-form-field">
-            <label htmlFor="collection-sort">Sort by</label>
-            <select
-              id="collection-sort"
-              value={sort}
-              disabled={controlsDisabled}
-              aria-describedby={dividersPaused ? "collection-dividers-paused" : undefined}
-              onChange={e => setSort(e.target.value as CollectionSort)}
-            >
-              <option value="collection">Date added</option>
-              <option value="title-asc">Title A–Z</option>
-              <option value="title-desc">Title Z–A</option>
-              <option value="year-newest">Release year (newest)</option>
-              <option value="year-oldest">Release year (oldest)</option>
-            </select>
+          <div className="collection-sort-tools">
+            <div className="album-form-field">
+              <label htmlFor="collection-sort">Sort by</label>
+              <select
+                id="collection-sort"
+                value={sort}
+                disabled={controlsDisabled}
+                aria-describedby={dividersPaused ? "collection-dividers-paused" : undefined}
+                onChange={e => setSort(e.target.value as CollectionSort)}
+              >
+                <option value="collection">Date added</option>
+                <option value="title-asc">Title A–Z</option>
+                <option value="title-desc">Title Z–A</option>
+                <option value="year-newest">Release year (newest)</option>
+                <option value="year-oldest">Release year (oldest)</option>
+              </select>
+            </div>
+            <button type="button" className="collection-filter-toggle" ref={filterButton} popoverTarget={filterId}
+              disabled={controlsDisabled} aria-label={formats.length ? `Format filters, ${formats.length} selected` : "Format filters"}>
+              <SlidersHorizontal size={17} aria-hidden="true" />
+              {formats.length > 0 && <span aria-hidden="true">{formats.length}</span>}
+            </button>
+            <div id={filterId} ref={filterPanel} popover="auto" className="collection-filter-panel" inert={controlsDisabled}>
+              <fieldset>
+                <legend>Formats</legend>
+                {albumFormats.map(item => (
+                  <label key={item}>
+                    <input type="checkbox" checked={formats.includes(item)} onChange={event => {
+                      const checked = event.target.checked;
+                      setFormats(current => checked ? [...current, item] : current.filter(format => format !== item));
+                    }} />
+                    {item}
+                  </label>
+                ))}
+              </fieldset>
+              <div className="collection-filter-actions">
+                <button type="button" className="album-cancel" aria-disabled={!formats.length}
+                  onClick={() => { if (formats.length) setFormats([]); }}>Clear formats</button>
+                <button type="button" className="album-cancel" disabled={!hasFilters} onClick={resetFilters}>Reset filters</button>
+              </div>
+            </div>
           </div>
         </div>
 
@@ -263,25 +327,6 @@ function Collection({
           <p className="collection-result-count" role="status" tabIndex={-1} ref={statusRef}>
             {loadStatus === "loading" ? "Loading your albums…" : loadStatus === "ready" ? resultCount : null}
           </p>
-
-          <details className="collection-filters" inert={controlsDisabled}>
-            <summary>
-              Filters{formatFilter && <span> · {formatFilter}</span>}
-              <ChevronDown size={14} aria-hidden="true" />
-            </summary>
-            <div className="collection-filter-panel">
-              <div className="album-form-field">
-                <label htmlFor="collection-format">Format</label>
-                <select id="collection-format" value={formatFilter} onChange={e => setFormatFilter(e.target.value)}>
-                  <option value="">All formats</option>
-                  {albumFormats.map(item => <option key={item}>{item}</option>)}
-                </select>
-              </div>
-              <button type="button" className="album-cancel" disabled={!hasFilters} onClick={resetFilters}>
-                Reset filters
-              </button>
-            </div>
-          </details>
         </div>
 
         {dividersPaused && (

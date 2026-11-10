@@ -15,7 +15,7 @@ const albums = Object.freeze([
   album("h", "Horizon", "South", "Vinyl (7-inch / Single)", " 2002 ")
 ]);
 
-const defaults = { query: "", format: "", sort: "collection" };
+const defaults = { query: "", formats: [], sort: "collection" };
 
 function visibleIds(options) {
   return getVisibleAlbums(albums, { ...defaults, ...options }).map(album => album.id);
@@ -39,12 +39,13 @@ test("sorts by release year in both directions and keeps unknown years last", ()
 });
 
 test("combines search, exact format, and sort", () => {
-  assert.deepEqual(visibleIds({ query: "echoes", format: "CD", sort: "year-newest" }), ["m", "z"]);
-  assert.deepEqual(visibleIds({ format: "Vinyl (7-inch / Single)" }), ["h"]);
+  assert.deepEqual(visibleIds({ query: "echoes", formats: ["CD"], sort: "year-newest" }), ["m", "z"]);
+  assert.deepEqual(visibleIds({ formats: ["Vinyl (7-inch / Single)"] }), ["h"]);
+  assert.deepEqual(visibleIds({ query: "North", formats: ["Cassette", "CD"], sort: "title-asc" }), ["a", "s"]);
 });
 
 test("returns empty results for incompatible filters or an empty collection", () => {
-  assert.deepEqual(visibleIds({ query: "echoes", format: "Cassette", sort: "title-asc" }), []);
+  assert.deepEqual(visibleIds({ query: "echoes", formats: ["Cassette"], sort: "title-asc" }), []);
   assert.deepEqual(getVisibleAlbums([], defaults), []);
 });
 
@@ -76,7 +77,7 @@ test("groups only populated headings, folds accents, and puts other titles under
 });
 
 test("preserves alphabetical direction within each heading and reverses letter order", () => {
-  const selection = { query: "north", format: "CD" };
+  const selection = { query: "north", formats: ["CD"] };
   assert.deepEqual(dividedIds({ ...selection, sort: "title-asc" }).slice(0, 2), [
     ["A", ["afterglow", "apple"]], ["Z", ["zebra"]]
   ]);
@@ -89,8 +90,8 @@ test("preserves alphabetical direction within each heading and reverses letter o
 });
 
 test("groups only the search and format matches, including no matches", () => {
-  assert.deepEqual(dividedIds({ query: "North", format: "Vinyl (12-inch LP)" }), [["#", ["symbol"]]]);
-  assert.deepEqual(dividedIds({ query: "North", format: "Cassette" }), []);
+  assert.deepEqual(dividedIds({ query: "North", formats: ["Vinyl (12-inch LP)"] }), [["#", ["symbol"]]]);
+  assert.deepEqual(dividedIds({ query: "North", formats: ["Cassette"] }), []);
   assert.deepEqual(groupVisibleAlbums([], "title-asc"), []);
 });
 
@@ -105,7 +106,7 @@ test("pauses dividers in both year sorts so the chronological order stays intact
 test("pinned albums bypass search and format filters and precede sorted results and dividers", () => {
   const pinned = { ...albums[5], pinned: true };
   const input = [...albums.slice(0, 5), pinned];
-  const results = getVisibleAlbums(input, { query: "Echoes", format: "CD", sort: "title-asc" });
+  const results = getVisibleAlbums(input, { query: "Echoes", formats: ["CD"], sort: "title-asc" });
   assert.deepEqual(results.map(album => album.id), ["h", "m", "z"]);
   assert.deepEqual(groupVisibleAlbums(results, "title-asc").map(group => group.heading), ["Pinned", "M", "Z"]);
   assert.deepEqual(getVisibleAlbums(input, { ...defaults, query: "no match", sort: "year-newest" }), [pinned]);

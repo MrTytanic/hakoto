@@ -56,13 +56,13 @@ test("shows the first-album action after a successful empty load", () => {
   assert.doesNotMatch(html, /album-skeleton|Try again/);
 });
 
-test("shows loaded albums, with search and sort before the collapsed format disclosure", () => {
+test("shows loaded albums, with search and sort beside the format popover", () => {
   const html = render("ready", [{
     id: "album", title: "Test Album", artist: "Test Artist", format: "CD",
     releaseYear: "2000", artwork: null, favorite: false
   }]);
-  assert.match(html, /<label for="collection-search">Search albums<\/label>.*<label for="collection-sort">Sort by<\/label>.*<details class="collection-filters"><summary>Filters/s);
-  assert.match(html, /<label for="collection-format">Format<\/label>/);
+  assert.match(html, /<label for="collection-search">Search albums<\/label>.*<label for="collection-sort">Sort by<\/label>.*aria-label="Format filters".*popover="auto".*type="checkbox"/s);
+  assert.match(html, /<legend>Formats<\/legend>/);
   assert.match(html, /role="status"[^>]*>1 album/);
   assert.match(html, /<h3 title="Test Album">Test Album<\/h3>/);
   assert.doesNotMatch(html, /album-skeleton|Try again|Your collection is empty/);

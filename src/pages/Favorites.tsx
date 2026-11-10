@@ -21,7 +21,7 @@ type FavoritesProps = {
 function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [initialAction, setInitialAction] = useState<"edit" | "delete">();
-  const favorites = getVisibleAlbums(albums.filter(album => album.favorite), { query: "", format: "", sort: "collection" });
+  const favorites = getVisibleAlbums(albums.filter(album => album.favorite), { query: "", formats: [], sort: "collection" });
   const selectedAlbum = favorites.find(album => album.id === selectedId);
 
   return (
