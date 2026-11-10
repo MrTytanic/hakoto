@@ -22,6 +22,9 @@ export const themePreference = createPreference("hakoto.theme", ["dark", "light"
 export const alphabeticalDividersPreference = createPreference("hakoto.alphabeticalDividers", ["off", "on"], "off");
 export const collectionViewPreference = createPreference("hakoto.collectionView", ["grid", "list"], "grid");
 export type CollectionViewPreference = ReturnType<typeof collectionViewPreference.read>;
+export const textScalePreference = createPreference("hakoto.textScale", ["90", "100", "115", "130"], "100");
+export const animationsPreference = createPreference("hakoto.animations", ["on", "off"], "on");
+export type TextScalePreference = ReturnType<typeof textScalePreference.read>;
 export type ThemePreference = ReturnType<typeof themePreference.read>;
 export const systemThemeQuery = "(prefers-color-scheme: dark)";
 

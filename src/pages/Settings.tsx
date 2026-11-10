@@ -1,7 +1,7 @@
 import { Upload, Trash2 } from "lucide-react";
 import ProfileHeader, { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile, ProfileLoadStatus } from "../types/Profile";
-import type { ThemePreference } from "../settings";
+import type { TextScalePreference, ThemePreference } from "../settings";
 import StorageSettings from "./StorageSettings";
 import "./Settings.css";
 
@@ -17,6 +17,10 @@ type ProfileSettingsProps = {
 type SettingsProps = ProfileSettingsProps & {
   theme: ThemePreference;
   onThemeChange: (theme: ThemePreference) => void;
+  textScale: TextScalePreference;
+  onTextScaleChange: (scale: TextScalePreference) => void;
+  animationsEnabled: boolean;
+  onAnimationsEnabledChange: (enabled: boolean) => void;
   alphabeticalDividers: boolean;
   onAlphabeticalDividersChange: (enabled: boolean) => void;
 };
@@ -103,7 +107,8 @@ function ProfileSettings({
 }
 
 function Settings({
-  theme, onThemeChange, alphabeticalDividers, onAlphabeticalDividersChange, ...profileSettings
+  theme, onThemeChange, textScale, onTextScaleChange, animationsEnabled, onAnimationsEnabledChange,
+  alphabeticalDividers, onAlphabeticalDividersChange, ...profileSettings
 }: SettingsProps) {
   return (
     <div className="settings-page">
@@ -168,6 +173,27 @@ function Settings({
           <p id="alphabetical-dividers-help">
             Group albums by the first letter of their title. Sorting by release year temporarily hides the dividers.
           </p>
+        </div>
+      </section>
+
+      <section className="settings-section" aria-labelledby="settings-accessibility">
+        <div className="settings-section-heading">
+          <h2 id="settings-accessibility">Accessibility</h2>
+          <p>Adjust text size and motion on this device.</p>
+        </div>
+        <div className="settings-card">
+          <div className="settings-field">
+            <label htmlFor="text-scale">Text size</label>
+            <select id="text-scale" value={textScale} onChange={event => onTextScaleChange(event.target.value as TextScalePreference)}>
+              {(["90", "100", "115", "130"] as const).map(scale => <option key={scale} value={scale}>{scale}%</option>)}
+            </select>
+          </div>
+          <label className="settings-checkbox settings-motion">
+            <input type="checkbox" checked={!animationsEnabled} aria-describedby="motion-help"
+              onChange={event => onAnimationsEnabledChange(!event.target.checked)} />
+            Disable animations
+          </label>
+          <p id="motion-help">Animations also follow your device’s reduced motion preference.</p>
         </div>
       </section>
 

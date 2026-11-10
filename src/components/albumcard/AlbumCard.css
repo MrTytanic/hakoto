@@ -46,7 +46,7 @@
   margin: 10px 0 4px;
   overflow: hidden;
   color: var(--text-strong);
-  font-size: 14px;
+  font-size: calc(14px * var(--text-scale));
   font-weight: 600;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -56,12 +56,12 @@
   margin: 0 0 5px;
   overflow-wrap: anywhere;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .album-card span {
   color: var(--text-subtle);
-  font-size: 12px;
+  font-size: calc(12px * var(--text-scale));
 }
 
 .album-card .album-pin-indicator {

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
-import { alphabeticalDividersPreference, collectionViewPreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
+import { alphabeticalDividersPreference, animationsPreference, collectionViewPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
 
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const bootstrap = index.match(/<script>([\s\S]*?)<\/script>/);
@@ -15,6 +15,43 @@ function useStorage(t, storage) {
     else delete globalThis.localStorage;
   });
 }
+
+test("accessibility preferences persist supported values and reject invalid saved values", t => {
+  const entries = new Map();
+  useStorage(t, { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) });
+  assert.equal(textScalePreference.read(), "100");
+  assert.equal(animationsPreference.read(), "on");
+  for (const scale of ["90", "100", "115", "130"]) {
+    textScalePreference.write(scale);
+    assert.equal(textScalePreference.read(), scale);
+  }
+  animationsPreference.write("off");
+  assert.equal(animationsPreference.read(), "off");
+  entries.set("hakoto.textScale", "200");
+  entries.set("hakoto.animations", "invalid");
+  assert.equal(textScalePreference.read(), "100");
+  assert.equal(animationsPreference.read(), "on");
+});
+
+test("accessibility preferences apply before rendering and handle unavailable storage", () => {
+  for (const scale of ["90", "100", "115", "130", "invalid"]) {
+    for (const animations of ["on", "off"]) {
+      const dataset = {};
+      runInNewContext(bootstrap[1], {
+        document: { documentElement: { dataset } },
+        localStorage: { getItem: key => ({
+          "hakoto.textScale": scale,
+          "hakoto.animations": animations
+        })[key] ?? null }
+      });
+      assert.equal(dataset.textScale, scale === "invalid" ? "100" : scale);
+      assert.equal(dataset.animations, animations);
+    }
+  }
+  assert.doesNotThrow(() => runInNewContext(bootstrap[1], {
+    localStorage: { getItem() { throw Error("Unavailable"); } }
+  }));
+});
 
 test("collection view defaults to grid and persists valid choices", t => {
   const entries = new Map();

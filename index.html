@@ -15,6 +15,13 @@
       } catch {
         // Keep the default dark palette when storage is unavailable.
       }
+      try {
+        const scale = localStorage.getItem("hakoto.textScale");
+        document.documentElement.dataset.textScale = ["90", "100", "115", "130"].includes(scale) ? scale : "100";
+        document.documentElement.dataset.animations = localStorage.getItem("hakoto.animations") === "off" ? "off" : "on";
+      } catch {
+        // Use default text size and respect device motion preferences.
+      }
     </script>
     <link rel="stylesheet" href="/src/theme.css" />
   </head>

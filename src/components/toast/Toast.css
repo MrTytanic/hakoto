@@ -21,7 +21,7 @@
   background: var(--surface-raised);
   color: var(--text);
   box-shadow: 0 8px 30px var(--shadow-soft);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   pointer-events: auto;
 }
 

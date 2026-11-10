@@ -24,7 +24,7 @@
 
 .collection-header h1 {
   margin: 0;
-  font-size: 28px;
+  font-size: calc(28px * var(--text-scale));
   font-weight: 650;
   overflow-wrap: anywhere;
 }
@@ -43,7 +43,7 @@
   background: var(--action);
   color: var(--action-text);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   cursor: pointer;
 }
@@ -198,7 +198,7 @@
   padding-block: 7px;
   overflow: hidden;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -297,13 +297,13 @@
 .collection-empty h2 {
   margin: 8px 0 0;
   color: var(--text);
-  font-size: 19px;
+  font-size: calc(19px * var(--text-scale));
 }
 
 .collection-empty p {
   margin: 0 0 10px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .collection-empty [role="alert"] p {
@@ -314,7 +314,7 @@
 .collection-tools .collection-divider-note {
   margin-top: 6px;
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .collection-album-groups {
@@ -327,7 +327,7 @@
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border-subtle);
   color: var(--text-strong);
-  font-size: 16px;
+  font-size: calc(16px * var(--text-scale));
   font-weight: 600;
 }
 
@@ -395,7 +395,7 @@
 .album-modal-header h2 {
   margin: 0;
   color: var(--text-strong);
-  font-size: 20px;
+  font-size: calc(20px * var(--text-scale));
 }
 
 .album-modal-header button {
@@ -418,7 +418,7 @@
 .album-form-field label,
 .artwork-field-label {
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
 }
 
@@ -433,7 +433,7 @@
   background: var(--canvas);
   color: var(--text-strong);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
 
 .album-form-field input:focus,
@@ -476,7 +476,7 @@
 
 .album-artwork-upload span {
   color: var(--text);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   font-weight: 600;
   line-height: 1.4;
 }
@@ -484,7 +484,7 @@
 .album-artwork-upload small {
   max-width: 100%;
   color: var(--text-subtle);
-  font-size: 11px;
+  font-size: calc(11px * var(--text-scale));
   font-weight: 400;
   line-height: 1.5;
   overflow-wrap: break-word;
@@ -529,7 +529,7 @@
   background: var(--surface-muted);
   color: var(--text);
   font: inherit;
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
   cursor: pointer;
 }
 
@@ -559,5 +559,5 @@
 
 .album-date-note {
   color: var(--text-muted);
-  font-size: 13px;
+  font-size: calc(13px * var(--text-scale));
 }
