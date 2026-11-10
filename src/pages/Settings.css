@@ -24,39 +24,16 @@
   font-size: 13px;
 }
 
-.settings-navigation {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-bottom: 24px;
-}
-
-.settings-navigation button {
-  min-height: 38px;
-  padding: 0 12px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.settings-navigation button:hover {
-  background: var(--navigation-hover);
-  color: var(--text-strong);
-}
-
-.settings-navigation button[aria-current] {
-  background: var(--navigation-active);
-  color: var(--text-strong);
-  font-weight: 600;
-}
-
 .settings-section {
   display: flex;
   flex-direction: column;
   gap: 14px;
+}
+
+.settings-section + .settings-section {
+  margin-top: clamp(20px, 4vw, 32px);
+  padding-top: clamp(20px, 4vw, 32px);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .settings-section-heading h2 {
@@ -209,7 +186,6 @@
 .settings-upload:focus-within,
 .settings-upload:focus-visible,
 .settings-remove:focus-visible,
-.settings-navigation button:focus-visible,
 .settings-theme-options input:focus-visible,
 .settings-checkbox input:focus-visible {
   outline: 2px solid var(--focus);
@@ -287,6 +263,16 @@
   height: 8px;
   flex: 0 0 auto;
   border-radius: 50%;
+}
+
+.storage-advanced {
+  display: grid;
+  gap: 10px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
 }
 
 .storage-settings .storage-error {
