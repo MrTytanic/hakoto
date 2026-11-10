@@ -18,17 +18,17 @@ export function artworkUrl(filename: string | null) {
   return filename ? convertFileSrc(filename, "artwork") : null;
 }
 
-export function checkArtworkFile(file: File) {
+export function checkArtworkFile(file: File, label = "Artwork") {
   if (!Object.prototype.hasOwnProperty.call(signatures, file.type)) {
     throw new Error("Please select a PNG, JPG, or WebP image.");
   }
   if (file.size > MAX_UPLOAD_BYTES) {
-    throw new Error("Artwork must be 5 MB or smaller.");
+    throw new Error(`${label} must be 5 MB or smaller.`);
   }
 }
 
-export async function encodeArtwork(file: File) {
-  checkArtworkFile(file);
+export async function encodeArtwork(file: File, label = "Artwork") {
+  checkArtworkFile(file, label);
   const header = new Uint8Array(await file.slice(0, 12).arrayBuffer());
   if (!signatures[file.type](header)) {
     throw new Error("The selected file does not match its image format.");
@@ -41,7 +41,7 @@ export async function encodeArtwork(file: File) {
     try {
       await image.decode();
     } catch {
-      throw new Error("The selected artwork could not be opened.");
+      throw new Error(`The selected ${label.toLowerCase()} could not be opened.`);
     }
 
     const scale = Math.min(1, MAX_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
@@ -62,7 +62,7 @@ export async function encodeArtwork(file: File) {
       if (!bytes?.length || bytes.length > MAX_WEBP_BYTES) throw new Error();
       return Array.from(bytes);
     } catch {
-      throw new Error("Artwork could not be converted to WebP.");
+      throw new Error(`${label} could not be converted to WebP.`);
     }
   } finally {
     URL.revokeObjectURL(url);

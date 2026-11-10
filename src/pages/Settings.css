@@ -207,6 +207,7 @@
 }
 
 .settings-upload:focus-within,
+.settings-upload:focus-visible,
 .settings-remove:focus-visible,
 .settings-navigation button:focus-visible,
 .settings-theme-options input:focus-visible,
@@ -217,6 +218,12 @@
 
 .settings-remove {
   color: var(--danger);
+}
+
+.settings-upload:has(input:disabled),
+.settings-remove:disabled {
+  opacity: .6;
+  cursor: default;
 }
 
 .settings-file-input {

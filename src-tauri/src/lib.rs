@@ -1,12 +1,9 @@
-use std::{
-    fs,
-    path::{Path, PathBuf},
-    sync::Mutex,
-};
+use std::{fs, path::PathBuf, sync::Mutex};
 use tauri::{Manager, State, http};
 
 mod artwork;
 mod database;
+mod profile;
 
 struct DatabaseState {
     connection: Mutex<rusqlite::Connection>,
@@ -45,13 +42,34 @@ fn delete_album(state: State<'_, DatabaseState>, id: String) -> Result<usize, St
     database::delete_album(&mut connection, &state.app_dir, &id)
 }
 
-fn serve_artwork(
-    app_dir: Option<&Path>,
+#[tauri::command]
+fn get_profile(state: State<'_, DatabaseState>) -> Result<profile::Profile, String> {
+    let connection = state.connection.lock().map_err(|error| error.to_string())?;
+    profile::get(&connection).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_display_name(state: State<'_, DatabaseState>, name: String) -> Result<(), String> {
+    let connection = state.connection.lock().map_err(|error| error.to_string())?;
+    profile::set_display_name(&connection, &name).map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+fn set_profile_picture(
+    state: State<'_, DatabaseState>,
+    change: database::ArtworkChange,
+) -> Result<Option<String>, String> {
+    let mut connection = state.connection.lock().map_err(|error| error.to_string())?;
+    profile::set_picture(&mut connection, &state.app_dir, change).map_err(|error| error.to_string())
+}
+
+fn serve_image(
     request: http::Request<Vec<u8>>,
+    read: impl FnOnce(&str) -> Option<Vec<u8>>,
 ) -> http::Response<Vec<u8>> {
     let name = request.uri().path().strip_prefix('/').unwrap_or_default();
     if request.method() == http::Method::GET
-        && let Some(bytes) = app_dir.and_then(|dir| artwork::read(dir, name))
+        && let Some(bytes) = read(name)
     {
         return http::Response::builder()
             .header(http::header::CONTENT_TYPE, "image/webp")
@@ -72,13 +90,28 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .register_uri_scheme_protocol("artwork", |context, request| {
             let state = context.app_handle().try_state::<DatabaseState>();
-            serve_artwork(state.as_ref().map(|state| state.app_dir.as_path()), request)
+            serve_image(request, |name| {
+                state
+                    .as_ref()
+                    .and_then(|state| artwork::read(&state.app_dir, name))
+            })
+        })
+        .register_uri_scheme_protocol("profile-image", |context, request| {
+            let state = context.app_handle().try_state::<DatabaseState>();
+            serve_image(request, |name| {
+                state
+                    .as_ref()
+                    .and_then(|state| profile::read_image(&state.app_dir, name))
+            })
         })
         .invoke_handler(tauri::generate_handler![
             save_album,
             get_albums,
             update_album,
-            delete_album
+            delete_album,
+            get_profile,
+            set_display_name,
+            set_profile_picture
         ])
         .setup(|app| {
             let app_dir = app.path().app_data_dir()?;
@@ -95,6 +128,9 @@ pub fn run() {
             }
             if let Err(error) = database::clean_orphaned_artwork(&mut connection, &app_dir) {
                 eprintln!("Could not clean artwork directory: {error}");
+            }
+            if let Err(error) = profile::clean_orphaned_images(&mut connection, &app_dir) {
+                eprintln!("Could not clean profile images: {error}");
             }
 
             app.manage(DatabaseState {

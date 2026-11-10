@@ -17,7 +17,11 @@ pub fn is_filename(name: &str) -> bool {
 }
 
 pub fn directory(app_dir: &Path) -> io::Result<PathBuf> {
-    let path = app_dir.canonicalize()?.join("artwork");
+    directory_in(app_dir, "artwork")
+}
+
+pub fn directory_in(app_dir: &Path, folder: &str) -> io::Result<PathBuf> {
+    let path = app_dir.canonicalize()?.join(folder);
     if path.canonicalize()? == path && path.is_dir() {
         Ok(path)
     } else {
@@ -85,12 +89,16 @@ pub fn validate(bytes: &[u8]) -> bool {
 }
 
 pub fn write(app_dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+    write_in(app_dir, "artwork", name, bytes)
+}
+
+pub fn write_in(app_dir: &Path, folder: &str, name: &str, bytes: &[u8]) -> io::Result<()> {
     if !is_filename(name) || !validate(bytes) {
         return Err(io::Error::other("Invalid WebP artwork"));
     }
 
-    fs::create_dir_all(app_dir.join("artwork"))?;
-    let directory = directory(app_dir)?;
+    fs::create_dir_all(app_dir.join(folder))?;
+    let directory = directory_in(app_dir, folder)?;
     let path = directory.join(name);
     let mut file = OpenOptions::new()
         .write(true)
@@ -111,6 +119,10 @@ pub fn read(app_dir: &Path, name: &str) -> Option<Vec<u8>> {
 }
 
 pub fn read_checked(app_dir: &Path, name: &str) -> io::Result<Vec<u8>> {
+    read_checked_in(app_dir, "artwork", name)
+}
+
+pub fn read_checked_in(app_dir: &Path, folder: &str, name: &str) -> io::Result<Vec<u8>> {
     if !is_filename(name) {
         return Err(io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -118,7 +130,7 @@ pub fn read_checked(app_dir: &Path, name: &str) -> io::Result<Vec<u8>> {
         ));
     }
 
-    let path = directory(app_dir)?.join(name);
+    let path = directory_in(app_dir, folder)?.join(name);
     if !path.symlink_metadata()?.is_file() || path.canonicalize()? != path {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
