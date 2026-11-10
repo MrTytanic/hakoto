@@ -1,4 +1,6 @@
 import { UserRound } from "lucide-react";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { ArtworkImage } from "./Artwork";
 import type { Profile } from "../types/Profile";
 import "./ProfileHeader.css";
 
@@ -11,11 +13,11 @@ export function ProfileAvatar({
 }) {
   return (
     <div className={preview ? "profile-avatar profile-avatar-preview" : "profile-avatar"}>
-      {picture ? (
-        <img src={picture} alt={preview ? "Profile preview" : ""} />
-      ) : (
-        <UserRound size={preview ? 32 : 26} strokeWidth={1.5} aria-hidden="true" />
-      )}
+      <ArtworkImage
+        src={picture ? convertFileSrc(picture, "profile-image") : null}
+        alt={preview ? "Profile preview" : ""}
+        fallback={<UserRound size={preview ? 32 : 26} strokeWidth={1.5} aria-hidden="true" />}
+      />
     </div>
   );
 }

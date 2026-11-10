@@ -1,13 +1,20 @@
-import { useState, type ChangeEvent, type Dispatch, type SetStateAction } from "react";
+import { useState } from "react";
 import { Upload, Trash2 } from "lucide-react";
 import ProfileHeader, { ProfileAvatar } from "../components/ProfileHeader";
-import type { Profile } from "../types/Profile";
+import type { Profile, ProfileLoadStatus } from "../types/Profile";
 import type { ThemePreference } from "../settings";
 import "./Settings.css";
 
-type SettingsProps = {
+type ProfileSettingsProps = {
   profile: Profile;
-  setProfile: Dispatch<SetStateAction<Profile>>;
+  profileLoadStatus: ProfileLoadStatus;
+  onRetryProfile: () => void;
+  onDisplayNameChange: (name: string) => void;
+  onProfilePictureChange: (file: File | null) => void;
+  isSavingPicture: boolean;
+};
+
+type SettingsProps = ProfileSettingsProps & {
   theme: ThemePreference;
   onThemeChange: (theme: ThemePreference) => void;
   alphabeticalDividers: boolean;
@@ -27,21 +34,22 @@ const themeOptions = [
   { value: "system", label: "System" }
 ] as const;
 
-function ProfileSettings({ profile, setProfile }: Pick<SettingsProps, "profile" | "setProfile">) {
-  function handleUpload(e: ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    e.target.value = "";
-
-    if (!["image/png", "image/jpeg", "image/webp"].includes(file.type))
-      return alert("Please select a PNG, JPG, or WebP image.");
-
-    if (file.size > 5 * 1024 * 1024)
-      return alert("Please select an image smaller than 5 MB.");
-
-    const profilePicture = URL.createObjectURL(file);
-    setProfile(prev => ({ ...prev, profilePicture }));
+function ProfileSettings({
+  profile, profileLoadStatus, onRetryProfile, onDisplayNameChange, onProfilePictureChange, isSavingPicture
+}: ProfileSettingsProps) {
+  if (profileLoadStatus !== "ready") {
+    return (
+      <div className="settings-card">
+        {profileLoadStatus === "loading" ? (
+          <p role="status">Loading your profile…</p>
+        ) : (
+          <div className="settings-field">
+            <p role="alert">Couldn’t load your profile.</p>
+            <button type="button" className="settings-upload" onClick={onRetryProfile}>Try again</button>
+          </div>
+        )}
+      </div>
+    );
   }
 
   return (
@@ -55,14 +63,11 @@ function ProfileSettings({ profile, setProfile }: Pick<SettingsProps, "profile" 
           placeholder="Enter your display name"
           maxLength={40}
           value={profile.displayName}
-          onChange={e => {
-            const displayName = e.currentTarget.value;
-            setProfile(prev => ({ ...prev, displayName }));
-          }}
+          onChange={e => onDisplayNameChange(e.currentTarget.value)}
         />
       </div>
 
-      <div className="settings-field settings-avatar-field">
+      <div className="settings-field settings-avatar-field" aria-busy={isSavingPicture}>
         <label htmlFor="profile-picture">Profile Picture</label>
         <p id="profile-picture-help">Choose an image to represent your profile. Maximum size: 5 MB.</p>
 
@@ -71,14 +76,19 @@ function ProfileSettings({ profile, setProfile }: Pick<SettingsProps, "profile" 
 
           <div className="settings-avatar-controls">
             <label className="settings-upload">
-              <Upload size={15} aria-hidden="true" /> Upload Image
+              <Upload size={15} aria-hidden="true" /> {isSavingPicture ? "Saving picture…" : "Upload Image"}
               <input
                 id="profile-picture"
                 className="settings-file-input"
                 type="file"
                 accept="image/png,image/jpeg,image/webp"
                 aria-describedby="profile-picture-help"
-                onChange={handleUpload}
+                disabled={isSavingPicture}
+                onChange={e => {
+                  const file = e.currentTarget.files?.[0];
+                  e.currentTarget.value = "";
+                  if (file) onProfilePictureChange(file);
+                }}
               />
             </label>
 
@@ -86,7 +96,8 @@ function ProfileSettings({ profile, setProfile }: Pick<SettingsProps, "profile" 
               <button
                 type="button"
                 className="settings-remove"
-                onClick={() => setProfile(prev => ({ ...prev, profilePicture: null }))}
+                disabled={isSavingPicture}
+                onClick={() => onProfilePictureChange(null)}
               >
                 <Trash2 size={15} aria-hidden="true" /> Remove
               </button>
@@ -99,7 +110,7 @@ function ProfileSettings({ profile, setProfile }: Pick<SettingsProps, "profile" 
 }
 
 function Settings({
-  profile, setProfile, theme, onThemeChange, alphabeticalDividers, onAlphabeticalDividersChange
+  theme, onThemeChange, alphabeticalDividers, onAlphabeticalDividersChange, ...profileSettings
 }: SettingsProps) {
   const [section, setSection] = useState<(typeof sections)[number]>(sections[0]);
 
@@ -107,7 +118,7 @@ function Settings({
     <div className="settings-page">
       <div className="settings-header">
         <ProfileHeader
-          profile={profile}
+          profile={profileSettings.profile}
           title="Settings"
           description="Manage your preferences and personalize Hakoto."
         />
@@ -133,7 +144,7 @@ function Settings({
           <p>{section.description}</p>
         </div>
 
-        {section.title === "Profile" && <ProfileSettings profile={profile} setProfile={setProfile} />}
+        {section.title === "Profile" && <ProfileSettings {...profileSettings} />}
 
         {section.title === "Appearance" && (
           <div className="settings-card">
@@ -177,7 +188,7 @@ function Settings({
 
         {section.title === "Storage" && (
           <div className="settings-card">
-            <p>Your albums and artwork are stored locally on this device. Your theme preference is also saved locally.</p>
+            <p>Your albums, artwork, and profile are stored locally on this device. Your preferences are also saved locally.</p>
           </div>
         )}
       </section>

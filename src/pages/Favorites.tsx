@@ -1,6 +1,7 @@
 
 import { useState } from "react";
-import { Heart, UserRound } from "lucide-react";
+import { Heart } from "lucide-react";
+import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { ArtworkChange } from "../artwork";
 import type { Album } from "../types/Album";
@@ -25,13 +26,7 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesP
     <div className="collection-page">
       <div className="collection-top">
         <div className="collection-header">
-          <div className="collection-avatar">
-            {profile.profilePicture ? (
-              <img src={profile.profilePicture} alt="Profile" />
-            ) : (
-              <UserRound size={26} strokeWidth={1.5} />
-            )}
-          </div>
+          <ProfileAvatar picture={profile.profilePicture} />
 
           <h1>
             {profile.displayName.trim()

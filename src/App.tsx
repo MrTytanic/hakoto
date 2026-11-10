@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import type { Profile } from "./types/Profile";
-import type { ArtworkChange } from "./artwork";
+import type { Profile, ProfileLoadStatus } from "./types/Profile";
+import { encodeArtwork, type ArtworkChange } from "./artwork";
 import type { Album } from "./types/Album";
 import type { ToastData } from "./components/toast/Toast";
 import { alphabeticalDividersPreference, resolveTheme, systemThemeQuery, themePreference, type ThemePreference } from "./settings";
@@ -50,6 +50,11 @@ function App() {
     displayName: "",
     profilePicture: null
   });
+  const [profileLoadStatus, setProfileLoadStatus] = useState<ProfileLoadStatus>("loading");
+  const [profileLoadAttempt, setProfileLoadAttempt] = useState(0);
+  const profileNameWrites = useRef(Promise.resolve(""));
+  const [isSavingPicture, setIsSavingPicture] = useState(false);
+  const savingPicture = useRef(false);
 
   const [albums, setAlbums] = useState<Album[]>([]);
   const [albumLoadStatus, setAlbumLoadStatus] = useState<AlbumLoadStatus>("loading");
@@ -126,14 +131,69 @@ function App() {
     setAlbumLoadAttempt(attempt => attempt + 1);
   }
 
-  // Cleanup previous profile pictures.
   useEffect(() => {
-    return () => {
-      if (profile.profilePicture?.startsWith("blob:")) {
-        URL.revokeObjectURL(profile.profilePicture);
+    let cancelled = false;
+    async function loadProfile() {
+      try {
+        const saved = await invoke<Profile>("get_profile");
+        if (!cancelled) {
+          profileNameWrites.current = Promise.resolve(saved.displayName);
+          setProfile(saved);
+          setProfileLoadStatus("ready");
+        }
+      } catch (error) {
+        console.error("Failed to load profile:", error);
+        if (!cancelled) setProfileLoadStatus("error");
       }
+    }
+    loadProfile();
+    return () => {
+      cancelled = true;
     };
-  }, [profile.profilePicture]);
+  }, [profileLoadAttempt]);
+
+  function retryProfile() {
+    setProfileLoadStatus("loading");
+    setProfileLoadAttempt(attempt => attempt + 1);
+  }
+
+  function changeDisplayName(displayName: string) {
+    setProfile(prev => ({ ...prev, displayName }));
+    // Serialize writes from typing and roll back only the latest edit if it fails.
+    const write: Promise<string> = profileNameWrites.current.then(async savedName => {
+      try {
+        await invoke("set_display_name", { name: displayName });
+        return displayName;
+      } catch (error) {
+        console.error("Failed to save display name:", error);
+        if (profileNameWrites.current === write) {
+          setProfile(prev => ({ ...prev, displayName: savedName }));
+          notify("Could not save your display name.", "error");
+        }
+        return savedName;
+      }
+    });
+    profileNameWrites.current = write;
+  }
+
+  async function changeProfilePicture(file: File | null) {
+    if (savingPicture.current) return;
+    savingPicture.current = true;
+    setIsSavingPicture(true);
+    try {
+      const change: ArtworkChange = file
+        ? { kind: "replace", bytes: await encodeArtwork(file, "Profile picture") }
+        : { kind: "remove" };
+      const profilePicture = await invoke<string | null>("set_profile_picture", { change });
+      setProfile(prev => ({ ...prev, profilePicture }));
+    } catch (error) {
+      console.error("Failed to save profile picture:", error);
+      notify(error instanceof Error ? error.message : "Could not save your profile picture.", "error");
+    } finally {
+      savingPicture.current = false;
+      setIsSavingPicture(false);
+    }
+  }
 
   function addAlbum(album: Album) {
     setAlbums(prev => [...prev, album]);
@@ -207,7 +267,11 @@ function App() {
     Settings: (
       <Settings
         profile={profile}
-        setProfile={setProfile}
+        profileLoadStatus={profileLoadStatus}
+        onRetryProfile={retryProfile}
+        onDisplayNameChange={changeDisplayName}
+        onProfilePictureChange={changeProfilePicture}
+        isSavingPicture={isSavingPicture}
         theme={theme}
         onThemeChange={changeTheme}
         alphabeticalDividers={alphabeticalDividers}

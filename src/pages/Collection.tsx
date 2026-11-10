@@ -1,7 +1,8 @@
 
 import { useMemo, useRef, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, ChevronDown, Disc3, Plus, Search, UserRound, X } from "lucide-react";
+import { AlertCircle, ChevronDown, Disc3, Plus, Search, X } from "lucide-react";
+import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
@@ -166,13 +167,7 @@ function Collection({
     <div className="collection-page">
       <div className="collection-top">
         <div className="collection-header">
-          <div className="collection-avatar">
-            {profile.profilePicture ? (
-              <img src={profile.profilePicture} alt="Profile" />
-            ) : (
-              <UserRound size={26} strokeWidth={1.5} />
-            )}
-          </div>
+          <ProfileAvatar picture={profile.profilePicture} />
 
           <h1>
             {profile.displayName.trim()

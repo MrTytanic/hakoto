@@ -7,7 +7,7 @@ use std::{
 
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
 
-use crate::artwork;
+use crate::{artwork, profile};
 
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 const INSERT_ALBUM: &str = "INSERT INTO albums
@@ -39,6 +39,7 @@ pub fn initialize_database(
         UPDATE albums SET artwork = NULL WHERE artwork GLOB 'blob:*';
         ",
     )?;
+    profile::initialize(&transaction)?;
 
     // Commit the table and its imported rows together so a failed import can be retried.
     if !already_initialized && let Some(legacy_dir) = legacy_dir {
@@ -202,12 +203,15 @@ fn store_artwork(
     app_dir: &Path,
     bytes: &[u8],
 ) -> Result<String, Box<dyn Error>> {
-    let name: String =
-        connection.query_row("SELECT lower(hex(randomblob(16))) || '.webp'", [], |row| {
-            row.get(0)
-        })?;
+    let name = image_filename(connection)?;
     artwork::write(app_dir, &name, bytes)?;
     Ok(name)
+}
+
+pub fn image_filename(connection: &Connection) -> rusqlite::Result<String> {
+    connection.query_row("SELECT lower(hex(randomblob(16))) || '.webp'", [], |row| {
+        row.get(0)
+    })
 }
 
 fn write_album(connection: &Connection, sql: &str, album: &Album) -> rusqlite::Result<usize> {
@@ -355,6 +359,178 @@ mod tests {
             artwork: None,
             favorite: false,
         }
+    }
+
+    #[test]
+    fn profile_is_added_to_existing_collections_and_survives_reopening() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let mut db = initialize_database(app_dir, None).unwrap();
+        save_album(&mut db, app_dir, album("existing"), None).unwrap();
+        db.execute("DROP TABLE profile", []).unwrap();
+        drop(db);
+
+        let mut db = initialize_database(app_dir, None).unwrap();
+        let default = profile::get(&db).unwrap();
+        assert_eq!(default.display_name, "");
+        assert!(default.profile_picture.is_none());
+        profile::set_display_name(&db, "Zoë 🎵").unwrap();
+        let picture =
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec()))
+                .unwrap()
+                .unwrap();
+        assert!(artwork::is_filename(&picture));
+        assert!(app_dir.join("profile-images").join(&picture).is_file());
+        assert!(!app_dir.join("artwork").exists());
+        drop(db);
+
+        let db = initialize_database(app_dir, None).unwrap();
+        let saved = profile::get(&db).unwrap();
+        assert_eq!(saved.display_name, "Zoë 🎵");
+        assert_eq!(saved.profile_picture.as_deref(), Some(picture.as_str()));
+        assert_eq!(
+            profile::read_image(app_dir, &picture).as_deref(),
+            Some(COVER)
+        );
+        let storage_type: String = db
+            .query_row("SELECT typeof(picture) FROM profile", [], |row| row.get(0))
+            .unwrap();
+        assert_eq!(storage_type, "text");
+        assert_eq!(get_albums(&db).unwrap()[0].id, "existing");
+    }
+
+    #[test]
+    fn profile_replacement_removal_and_startup_cleanup_only_touch_profile_images() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let mut db = initialize_database(app_dir, None).unwrap();
+        let original =
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec()))
+                .unwrap()
+                .unwrap();
+        artwork::write(app_dir, &original, COVER).unwrap();
+        let replacement =
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec()))
+                .unwrap()
+                .unwrap();
+        assert_ne!(replacement, original);
+        assert!(!app_dir.join("profile-images").join(&original).exists());
+        assert_eq!(
+            profile::read_image(app_dir, &replacement).as_deref(),
+            Some(COVER)
+        );
+
+        // Simulate a file left behind by an interrupted update.
+        let orphan = app_dir.join("profile-images").join(&original);
+        fs::write(&orphan, COVER).unwrap();
+        drop(db);
+        let mut db = initialize_database(app_dir, None).unwrap();
+        profile::clean_orphaned_images(&mut db, app_dir).unwrap();
+        assert!(!orphan.exists());
+        assert_eq!(
+            profile::read_image(app_dir, &replacement).as_deref(),
+            Some(COVER)
+        );
+
+        profile::set_display_name(&db, "Saved name").unwrap();
+        assert_eq!(
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Remove).unwrap(),
+            None
+        );
+        assert!(!app_dir.join("profile-images").join(replacement).exists());
+        assert_eq!(artwork::read(app_dir, &original).as_deref(), Some(COVER));
+        drop(db);
+        let db = initialize_database(app_dir, None).unwrap();
+        let saved = profile::get(&db).unwrap();
+        assert_eq!(saved.display_name, "Saved name");
+        assert!(saved.profile_picture.is_none());
+    }
+
+    #[test]
+    fn failed_profile_writes_preserve_committed_data_and_clean_new_files() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let mut db = initialize_database(app_dir, None).unwrap();
+        profile::set_display_name(&db, "Saved name").unwrap();
+        let original =
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec()))
+                .unwrap()
+                .unwrap();
+        assert!(profile::set_display_name(&db, &"x".repeat(41)).is_err());
+        assert!(
+            profile::set_picture(
+                &mut db,
+                app_dir,
+                ArtworkChange::Replace(b"not an image".to_vec())
+            )
+            .is_err()
+        );
+
+        let images = app_dir.join("profile-images");
+        let backup = app_dir.join("images-backup");
+        fs::rename(&images, &backup).unwrap();
+        fs::write(&images, b"directory unavailable").unwrap();
+        assert!(
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec())).is_err()
+        );
+        fs::remove_file(&images).unwrap();
+        fs::rename(backup, &images).unwrap();
+
+        db.execute_batch(
+            "CREATE TRIGGER reject_profile_update BEFORE UPDATE ON profile
+             BEGIN SELECT RAISE(ABORT, 'forced failure'); END;",
+        )
+        .unwrap();
+        assert!(profile::set_display_name(&db, "Failed name").is_err());
+        assert!(
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec())).is_err()
+        );
+        assert!(profile::set_picture(&mut db, app_dir, ArtworkChange::Remove).is_err());
+        drop(db);
+
+        let db = initialize_database(app_dir, None).unwrap();
+        let saved = profile::get(&db).unwrap();
+        assert_eq!(saved.display_name, "Saved name");
+        assert_eq!(saved.profile_picture.as_deref(), Some(original.as_str()));
+        assert_eq!(
+            profile::read_image(app_dir, &original).as_deref(),
+            Some(COVER)
+        );
+        assert_eq!(fs::read_dir(images).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn missing_or_unsafe_profile_picture_does_not_prevent_loading_or_repair() {
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let mut db = initialize_database(app_dir, None).unwrap();
+        profile::set_display_name(&db, "Saved name").unwrap();
+        let name = profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec()))
+            .unwrap()
+            .unwrap();
+        fs::remove_file(app_dir.join("profile-images").join(&name)).unwrap();
+        assert!(profile::read_image(app_dir, &name).is_none());
+        assert_eq!(
+            profile::get(&db).unwrap().profile_picture.as_deref(),
+            Some(name.as_str())
+        );
+
+        fs::write(app_dir.join(&name), COVER).unwrap();
+        let traversal = format!("../{name}");
+        db.execute("UPDATE profile SET picture = ?1", [&traversal])
+            .unwrap();
+        assert!(profile::read_image(app_dir, &traversal).is_none());
+        assert!(profile::get(&db).unwrap().profile_picture.is_none());
+        let repaired =
+            profile::set_picture(&mut db, app_dir, ArtworkChange::Replace(COVER.to_vec()))
+                .unwrap()
+                .unwrap();
+        assert_eq!(
+            profile::read_image(app_dir, &repaired).as_deref(),
+            Some(COVER)
+        );
+        assert_eq!(fs::read(app_dir.join(name)).unwrap(), COVER);
+        assert_eq!(profile::get(&db).unwrap().display_name, "Saved name");
     }
 
     #[test]

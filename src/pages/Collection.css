@@ -29,26 +29,6 @@
   overflow-wrap: anywhere;
 }
 
-.collection-avatar {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 52px;
-  height: 52px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--surface-muted);
-  color: var(--text-muted);
-}
-
-.collection-avatar img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-
 /* Buttons */
 .collection-add,
 .collection-empty button,
