@@ -76,6 +76,43 @@
   margin-top: 10px;
 }
 
+.collection-pagination,
+.collection-page-size,
+.collection-page-buttons {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.collection-pagination {
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+  font-size: calc(13px * var(--text-scale));
+  color: var(--text-muted);
+}
+
+.collection-page-size select {
+  min-height: 34px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+}
+
+.collection-pagination :is(button, select):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.collection-pagination button:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
 .collection-view-toggle {
   display: flex;
   flex: none;

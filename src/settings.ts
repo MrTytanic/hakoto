@@ -21,6 +21,8 @@ function createPreference<const Value extends string>(key: string, values: reado
 export const themePreference = createPreference("hakoto.theme", ["dark", "light", "system"], "dark");
 export const alphabeticalDividersPreference = createPreference("hakoto.alphabeticalDividers", ["off", "on"], "off");
 export const collectionViewPreference = createPreference("hakoto.collectionView", ["grid", "list"], "grid");
+export const collectionPageSizes = ["10", "25", "50", "100"] as const;
+export const collectionPageSizePreference = createPreference("hakoto.collectionPageSize", collectionPageSizes, "25");
 export type CollectionViewPreference = ReturnType<typeof collectionViewPreference.read>;
 export const textScalePreference = createPreference("hakoto.textScale", ["90", "100", "115", "130"], "100");
 export const animationsPreference = createPreference("hakoto.animations", ["on", "off"], "on");

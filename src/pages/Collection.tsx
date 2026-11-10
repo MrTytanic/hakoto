@@ -6,8 +6,8 @@ import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
-import { getVisibleAlbums, groupVisibleAlbums, type CollectionSort } from "../collectionView";
-import { collectionViewPreference } from "../settings";
+import { getVisibleAlbums, groupVisibleAlbums, paginateAlbums, type CollectionSort } from "../collectionView";
+import { collectionPageSizePreference, collectionPageSizes, collectionViewPreference } from "../settings";
 import AlbumMetadataFields, { albumMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
@@ -62,6 +62,8 @@ function Collection({
   const [query, setQuery] = useState("");
   const [view, setView] = useState(collectionViewPreference.read);
   useEffect(() => { collectionViewPreference.write(view); }, [view]);
+  const [pageSize, setPageSize] = useState(collectionPageSizePreference.read);
+  useEffect(() => { collectionPageSizePreference.write(pageSize); }, [pageSize]);
   const [formats, setFormats] = useState<string[]>([]);
   const filterId = useId();
   const filterButton = useRef<HTMLButtonElement>(null);
@@ -73,11 +75,32 @@ function Collection({
     () => getVisibleAlbums(albums, { query, formats, sort }),
     [albums, query, formats, sort]
   );
-  const albumGroups = useMemo(
+  const allGroups = useMemo(
     () => alphabeticalDividers ? groupVisibleAlbums(visibleAlbums, sort) : null,
     [alphabeticalDividers, visibleAlbums, sort]
   );
-  const dividersPaused = alphabeticalDividers && albumGroups === null;
+  const orderedAlbums = useMemo(
+    () => allGroups ? allGroups.flatMap(group => group.albums) : visibleAlbums,
+    [allGroups, visibleAlbums]
+  );
+  const pageScope = useMemo(
+    () => ({ query, formats, sort, pageSize, alphabeticalDividers }),
+    [query, formats, sort, pageSize, alphabeticalDividers]
+  );
+  const [page, setPage] = useState({ scope: pageScope, index: 0 });
+  const pagination = useMemo(
+    () => paginateAlbums(orderedAlbums, page.scope === pageScope ? page.index : 0, Number(pageSize)),
+    [orderedAlbums, page, pageScope, pageSize]
+  );
+  // Adjust before rendering a changed result set so no stale or empty page flashes.
+  if (page.scope !== pageScope || page.index !== pagination.pageIndex) {
+    setPage({ scope: pageScope, index: pagination.pageIndex });
+  }
+  const albumGroups = useMemo(
+    () => allGroups ? groupVisibleAlbums(pagination.albums, sort) : null,
+    [allGroups, pagination.albums, sort]
+  );
+  const dividersPaused = alphabeticalDividers && allGroups === null;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
@@ -347,6 +370,28 @@ function Collection({
         )}
       </section>
 
+      {loadStatus === "ready" && visibleAlbums.length > 0 && (
+        <nav className="collection-pagination" aria-label="Collection pages">
+          <div className="collection-page-size">
+            <label htmlFor="collection-page-size">Albums per page</label>
+            <select id="collection-page-size" value={pageSize} onChange={event => {
+              const size = collectionPageSizes.find(value => value === event.target.value);
+              if (size) setPageSize(size);
+            }}>
+              {collectionPageSizes.map(size => <option key={size} value={size}>{size}</option>)}
+            </select>
+          </div>
+          <span role="status">Showing {pagination.start + 1}–{pagination.end} of {visibleAlbums.length}</span>
+          <div className="collection-page-buttons">
+            <button type="button" className="album-cancel" disabled={pagination.pageIndex === 0}
+              onClick={() => setPage({ scope: pageScope, index: pagination.pageIndex - 1 })}>Previous</button>
+            <span>Page {pagination.pageIndex + 1} of {pagination.pageCount}</span>
+            <button type="button" className="album-cancel" disabled={pagination.pageIndex + 1 === pagination.pageCount}
+              onClick={() => setPage({ scope: pageScope, index: pagination.pageIndex + 1 })}>Next</button>
+          </div>
+        </nav>
+      )}
+
       {loadStatus === "loading" ? (
         <div className={view === "list" ? "album-list" : "album-grid"} aria-hidden="true">
           {Array.from({ length: 8 }, (_, index) => (
@@ -395,7 +440,7 @@ function Collection({
             );
           })}
         </div>
-      ) : renderAlbumGrid(visibleAlbums)}
+      ) : renderAlbumGrid(pagination.albums)}
 
       {selectedAlbum && (
         <AlbumDetails
