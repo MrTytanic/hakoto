@@ -1,5 +1,5 @@
 
-import { useMemo, useRef, useState, type FormEvent } from "react";
+import { useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertCircle, ChevronDown, Disc3, Plus, Search, X } from "lucide-react";
 import { ProfileAvatar } from "../components/ProfileHeader";
@@ -20,6 +20,8 @@ export type CollectionProps = {
   albums: Album[];
   alphabeticalDividers: boolean;
   embedded?: boolean;
+  albumAction?: (album: Album) => ReactNode;
+  onAlbumPointerDown?: (event: PointerEvent<HTMLButtonElement>, album: Album) => void;
   loadStatus: AlbumLoadStatus;
   onRetry: () => void;
   onAdd: (album: Album) => void;
@@ -46,6 +48,8 @@ function Collection({
   albums,
   alphabeticalDividers,
   embedded = false,
+  albumAction,
+  onAlbumPointerDown,
   loadStatus,
   onRetry,
   onAdd,
@@ -159,9 +163,13 @@ function Collection({
   function renderAlbumGrid(items: readonly Album[]) {
     return (
       <div className="album-grid">
-        {items.map(album => (
-          <AlbumCard key={album.id} album={album} onClick={() => setSelectedId(album.id)} />
-        ))}
+        {items.map(album => albumAction ? (
+          <div key={album.id} className="shelf-album-card">
+            <AlbumCard album={album} onClick={() => setSelectedId(album.id)}
+              onPointerDown={onAlbumPointerDown ? event => onAlbumPointerDown(event, album) : undefined} />
+            {albumAction(album)}
+          </div>
+        ) : <AlbumCard key={album.id} album={album} onClick={() => setSelectedId(album.id)} />)}
       </div>
     );
   }

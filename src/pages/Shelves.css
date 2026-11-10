@@ -177,3 +177,160 @@
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
+
+.shelf-workspace :is(.shelf-arrange-help, .shelf-arrange-status) {
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+
+.shelf-arrange-status:empty {
+  min-height: 1em;
+}
+
+.shelf-slot[data-shelf-slot] {
+  padding: 0;
+}
+
+.shelf-slot-button {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  width: 100%;
+  min-height: 104px;
+  padding: 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+}
+
+.shelf-grid[data-orientation="horizontal"] .shelf-slot-button {
+  min-height: 40px;
+}
+
+.shelf-album-card {
+  display: grid;
+  justify-items: start;
+  gap: 8px;
+  min-width: 0;
+}
+
+.shelf-place-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 32px;
+  padding: 4px 8px;
+}
+
+.shelf-place-button:not(:disabled),
+.shelf-slot-button .shelf-spine {
+  touch-action: none;
+}
+
+.shelf-place-button:not(:disabled),
+.shelf-album-card:has(.shelf-place-button:not(:disabled)) .album-card,
+.shelf-slot-button:not([data-slot-empty]) {
+  cursor: grab;
+  user-select: none;
+}
+
+.shelf-place-button:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+.shelf-place-button:disabled,
+.shelf-place-button[aria-disabled="true"] {
+  opacity: .55;
+  cursor: default;
+}
+
+.shelf-place-button[aria-pressed="true"],
+.shelf-slot[data-drop-kind="origin"] {
+  border-color: var(--focus);
+  background: var(--navigation-active);
+}
+
+.shelf-slot:is([data-drop-kind="place"], [data-drop-kind="move"], [data-drop-kind="swap"]) {
+  border-color: var(--focus);
+  border-inline-style: dashed;
+}
+
+.shelf-slot[data-drop-hovered] {
+  outline: 2px solid var(--focus);
+  outline-offset: -2px;
+  background: var(--navigation-active);
+}
+
+.shelf-slot[data-drop-hovered]:is([data-drop-kind="origin"], [data-drop-kind="occupied"]) {
+  outline-color: var(--danger);
+  background: var(--danger-subtle);
+}
+
+.shelves-page.is-dragging {
+  cursor: grabbing;
+  user-select: none;
+}
+
+.shelf-drag-preview {
+  position: fixed;
+  z-index: 2100;
+  top: 0;
+  left: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 8px;
+  width: min(245px, calc(100vw - 12px));
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface-raised);
+  color: var(--text);
+  box-shadow: 0 8px 24px var(--shadow);
+  pointer-events: none;
+  visibility: hidden;
+}
+
+.shelf-drag-cover {
+  display: grid;
+  place-items: center;
+  height: 48px;
+  overflow: hidden;
+  border-radius: 4px;
+  background: var(--surface-muted);
+}
+
+.shelf-drag-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.shelf-drag-info {
+  display: grid;
+  min-width: 0;
+  align-content: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.shelf-drag-info > * {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.shelf-drag-info strong {
+  color: var(--text-strong);
+}
+
+.shelf-drag-hint {
+  grid-column: 1 / -1;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.shelf-drag-preview:is([data-drop-kind="occupied"], [data-drop-kind="origin"]) .shelf-drag-hint {
+  color: var(--danger);
+}
