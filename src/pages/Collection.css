@@ -76,6 +76,55 @@
   margin-top: 10px;
 }
 
+.collection-view-toggle {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+
+.collection-view-toggle button {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 28px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+}
+
+.collection-view-toggle button:is(:hover, [aria-pressed="true"]) {
+  background: var(--navigation-active);
+  color: var(--text-strong);
+}
+
+.album-list {
+  display: grid;
+  gap: 6px;
+}
+
+.album-list .shelf-album-card {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+}
+
+.album-list .album-skeleton {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  column-gap: 12px;
+  max-width: none;
+  padding: 8px;
+}
+
+.album-list .album-skeleton .album-artwork {
+  grid-row: 1 / 4;
+  width: 56px;
+  height: 56px;
+}
+
 .collection-tools .album-form-field {
   min-width: 0;
   margin: 0;

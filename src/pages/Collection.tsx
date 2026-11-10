@@ -1,12 +1,13 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, Disc3, Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import { AlertCircle, Disc3, Grid2X2, List, Plus, Search, SlidersHorizontal, X } from "lucide-react";
 import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
 import { getVisibleAlbums, groupVisibleAlbums, type CollectionSort } from "../collectionView";
+import { collectionViewPreference } from "../settings";
 import AlbumMetadataFields, { albumMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
@@ -59,6 +60,8 @@ function Collection({
   onNotify
 }: CollectionProps) {
   const [query, setQuery] = useState("");
+  const [view, setView] = useState(collectionViewPreference.read);
+  useEffect(() => { collectionViewPreference.write(view); }, [view]);
   const [formats, setFormats] = useState<string[]>([]);
   const filterId = useId();
   const filterButton = useRef<HTMLButtonElement>(null);
@@ -209,7 +212,7 @@ function Collection({
   }
 
   function renderAlbumCard(album: Album) {
-    return <AlbumCard key={album.id} album={album} onClick={() => openAlbum(album.id)}
+    return <AlbumCard key={album.id} album={album} view={view} onClick={() => openAlbum(album.id)}
       onPointerDown={onAlbumPointerDown ? event => onAlbumPointerDown(event, album) : undefined}
       onAction={async action => {
         if (action === "edit" || action === "delete") openAlbum(album.id, action);
@@ -219,7 +222,7 @@ function Collection({
 
   function renderAlbumGrid(items: readonly Album[]) {
     return (
-      <div className="album-grid">
+      <div className={view === "list" ? "album-list" : "album-grid"}>
         {items.map(album => albumAction ? (
           <div key={album.id} className="shelf-album-card">
             {renderAlbumCard(album)}
@@ -327,6 +330,14 @@ function Collection({
           <p className="collection-result-count" role="status" tabIndex={-1} ref={statusRef}>
             {loadStatus === "loading" ? "Loading your albums…" : loadStatus === "ready" ? resultCount : null}
           </p>
+          <div className="collection-view-toggle" role="group" aria-label="Collection view">
+            <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}>
+              <Grid2X2 size={17} aria-hidden="true" />
+            </button>
+            <button type="button" aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")}>
+              <List size={17} aria-hidden="true" />
+            </button>
+          </div>
         </div>
 
         {dividersPaused && (
@@ -337,7 +348,7 @@ function Collection({
       </section>
 
       {loadStatus === "loading" ? (
-        <div className="album-grid" aria-hidden="true">
+        <div className={view === "list" ? "album-list" : "album-grid"} aria-hidden="true">
           {Array.from({ length: 8 }, (_, index) => (
             <div key={index} className="album-card album-skeleton">
               <div className="album-artwork" />

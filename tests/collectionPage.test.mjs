@@ -68,6 +68,29 @@ test("shows loaded albums, with search and sort beside the format popover", () =
   assert.doesNotMatch(html, /album-skeleton|Try again|Your collection is empty/);
 });
 
+test("restores list view with album details, pin indicator and the existing actions", t => {
+  const original = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: { getItem: key => key === "hakoto.collectionView" ? "list" : null }
+  });
+  t.after(() => {
+    if (original) Object.defineProperty(globalThis, "localStorage", original);
+    else delete globalThis.localStorage;
+  });
+  const html = render("ready", [{
+    id: "album", title: "Test Album", artist: "Test Artist", format: "CD",
+    releaseYear: "", artwork: null, favorite: true, pinned: true
+  }]);
+  assert.match(html, /class="album-list"/);
+  assert.match(html, /aria-label="List view" aria-pressed="true"/);
+  assert.match(html, /data-view="list"/);
+  assert.match(html, /aria-label="Pinned"/);
+  assert.doesNotMatch(html, /album-favorite-indicator|aria-label="Favorite"/);
+  assert.match(html, /Test Album.*Test Artist.*CD/s);
+  assert.match(html, /Unfavorite.*Unpin.*Edit.*Delete/s);
+});
+
 test("renders accessible headings and the existing card grid when dividers are enabled", () => {
   const albums = ["Zebra", "7 Steps"].map((title, id) => ({
     id: String(id), title, artist: "Test Artist", format: "CD",

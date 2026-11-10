@@ -64,7 +64,7 @@
   font-size: 12px;
 }
 
-.album-card .album-favorite-indicator {
+.album-card .album-pin-indicator {
   position: absolute;
   top: 10px;
   left: 10px;
@@ -77,12 +77,6 @@
   width: 100%;
   min-width: 0;
   max-width: 240px;
-}
-
-.album-pin-indicator {
-  margin-inline-start: 6px;
-  color: var(--text-muted);
-  vertical-align: middle;
 }
 
 .album-card-actions {
@@ -128,6 +122,9 @@
   border-radius: 6px;
   background: var(--surface-raised);
   box-shadow: 0 4px 16px var(--shadow);
+  position: absolute;
+  right: 0;
+  top: 100%;
 }
 
 .album-card-action-list button {
@@ -155,4 +152,45 @@
 
 @media (hover: none) {
   .album-card-actions { opacity: 1; }
+}
+
+.album-card-frame[data-view="list"] {
+  max-width: none;
+  padding: 8px 48px 8px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.album-card-frame[data-view="list"] .album-card {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  column-gap: 12px;
+  align-items: center;
+  max-width: none;
+}
+
+.album-card-frame[data-view="list"] .album-artwork {
+  grid-row: 1 / 4;
+  width: 56px;
+  height: 56px;
+}
+
+.album-card-frame[data-view="list"] :is(h3, p, .album-card > span) {
+  grid-column: 2;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-card-frame[data-view="list"] .album-pin-indicator {
+  top: 3px;
+  left: 3px;
+  width: 13px;
+  height: 13px;
+}
+
+.album-card-frame[data-view="list"] .album-card-actions {
+  top: 20px;
 }
