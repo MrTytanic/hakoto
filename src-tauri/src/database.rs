@@ -145,26 +145,45 @@ pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
          FROM albums ORDER BY rowid ASC"
     ))?;
 
-    let albums = statement.query_map([], |row| {
-        Ok(Album {
-            id: row.get(0)?,
-            title: row.get(1)?,
-            artist: row.get(2)?,
-            format: row.get(3)?,
-            release_year: row.get(4)?,
-            artwork: row
-                .get::<_, Option<String>>(5)?
-                .filter(|name| artwork::is_filename(name)),
-            favorite: row.get(6)?,
-            pinned: row.get(7)?,
-            date_added: row.get(8)?,
-            condition: row.get(9)?,
-            record_type: row.get(10)?,
-            disc_size: row.get(11)?,
-        })
-    })?;
+    let albums = statement.query_map([], read_album)?;
 
     albums.collect()
+}
+
+fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
+    Ok(Album {
+        id: row.get(0)?,
+        title: row.get(1)?,
+        artist: row.get(2)?,
+        format: row.get(3)?,
+        release_year: row.get(4)?,
+        artwork: row
+            .get::<_, Option<String>>(5)?
+            .filter(|name| artwork::is_filename(name)),
+        favorite: row.get(6)?,
+        pinned: row.get(7)?,
+        date_added: row.get(8)?,
+        condition: row.get(9)?,
+        record_type: row.get(10)?,
+        disc_size: row.get(11)?,
+    })
+}
+
+pub fn get_album(connection: &Connection, id: &str) -> rusqlite::Result<Option<Album>> {
+    connection
+        .query_row(
+            "SELECT id, title, artist, format, release_year, artwork, favorite,
+                pinned, date_added, condition, record_type, disc_size
+         FROM albums WHERE id = ?1",
+            [id],
+            |row| {
+                let mut album = read_album(row)?;
+                // Internal mutation snapshots preserve legacy references without treating them as paths.
+                album.artwork = row.get(5)?;
+                Ok(album)
+            },
+        )
+        .optional()
 }
 
 pub fn save_album(
@@ -202,26 +221,24 @@ fn store_album(
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
-    let previous = if insert {
+    let existing = if insert {
         None
     } else {
-        album_artwork(&transaction, &album.id).map_err(|error| error.to_string())?
-    };
-
-    album.date_added = if insert {
-        transaction.query_row("SELECT date('now')", [], |row| row.get(0))
-    } else {
-        transaction.query_row(
-            "SELECT date_added FROM albums WHERE id = ?1",
-            [&album.id],
-            |row| row.get(0),
+        Some(
+            get_album(&transaction, &album.id)
+                .map_err(|error| error.to_string())?
+                .ok_or("Album no longer exists.")?,
         )
-    }
-    .map_err(|error| error.to_string())?;
-    if !album.format.starts_with("Vinyl") {
-        album.record_type = None;
-        album.disc_size = None;
-    }
+    };
+    crate::metadata::validate(&mut album, existing.as_ref())?;
+    let previous = existing.as_ref().and_then(|old| old.artwork.clone());
+    album.date_added = if let Some(existing) = existing {
+        existing.date_added
+    } else {
+        transaction
+            .query_row("SELECT date('now')", [], |row| row.get(0))
+            .map_err(|error| error.to_string())?
+    };
 
     let mut new_file = None;
     album.artwork = match change {
@@ -242,7 +259,13 @@ fn store_album(
                            artwork = ?6, favorite = ?7, pinned = ?8, date_added = ?9,
                            condition = ?10, record_type = ?11, disc_size = ?12 WHERE id = ?1"
     };
-    let result = write_album(&transaction, sql, &album).and_then(|_| transaction.commit());
+    let result = write_album(&transaction, sql, &album).and_then(|rows| {
+        if rows == 1 {
+            transaction.commit()
+        } else {
+            Err(rusqlite::Error::QueryReturnedNoRows)
+        }
+    });
 
     if let Err(error) = result {
         // The transaction has rolled back. Check references even if commit reported an error.
@@ -318,12 +341,6 @@ pub fn delete_album(
     transaction.commit().map_err(|error| error.to_string())?;
     cleanup(connection, app_dir, previous.as_deref());
     Ok(rows)
-}
-
-fn album_artwork(connection: &Connection, id: &str) -> rusqlite::Result<Option<String>> {
-    connection.query_row("SELECT artwork FROM albums WHERE id = ?1", [id], |row| {
-        row.get(0)
-    })
 }
 
 pub(crate) fn cleanup(connection: &mut Connection, app_dir: &Path, name: Option<&str>) {
@@ -506,6 +523,179 @@ mod tests {
         crate::undo::purge_expired(&mut db, path).unwrap();
         assert!(crate::undo::pending(&db).unwrap().is_empty());
         assert!(artwork::read(path, &name).is_none());
+    }
+
+    #[test]
+    fn validates_changed_metadata_before_artwork_writes_and_binds_sql_values() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let id = "album'; DROP TABLE albums; --";
+        let mut candidate = album(id);
+        candidate.title = "音楽 — L'été".into();
+        let saved = save_album(&mut db, path, candidate, Some(COVER.to_vec())).unwrap();
+        assert_eq!(get_album(&db, id).unwrap().unwrap().title, saved.title);
+        for field in [
+            "blank",
+            "control",
+            "long",
+            "artist",
+            "format",
+            "year",
+            "condition",
+            "record",
+            "size",
+            "non-vinyl",
+        ] {
+            let mut invalid = get_album(&db, id).unwrap().unwrap();
+            match field {
+                "blank" => invalid.title = "  ".into(),
+                "control" => invalid.artist = "Bad\0Name".into(),
+                "long" => invalid.title = "x".repeat(501),
+                "artist" => invalid.artist = "x".repeat(301),
+                "format" => invalid.format = "".into(),
+                "year" => invalid.release_year = "2025-02-30".into(),
+                "condition" => invalid.condition = Some("Unknown".into()),
+                "record" => invalid.record_type = Some("Double".into()),
+                "size" => invalid.disc_size = Some("8".into()),
+                "non-vinyl" => invalid.record_type = Some("LP".into()),
+                _ => unreachable!(),
+            }
+            assert!(
+                update_album(
+                    &mut db,
+                    path,
+                    invalid,
+                    Some(ArtworkChange::Replace(COVER.to_vec()))
+                )
+                .is_err(),
+                "{field}"
+            );
+            assert_eq!(fs::read_dir(path.join("artwork")).unwrap().count(), 1);
+            assert_eq!(get_album(&db, id).unwrap().unwrap().title, saved.title);
+        }
+        let mut valid = get_album(&db, id).unwrap().unwrap();
+        valid.favorite = true;
+        valid.condition = Some("Near Mint".into());
+        valid.release_year = "".into();
+        let result = update_album(&mut db, path, valid, None).unwrap();
+        assert!(result.favorite);
+        assert_eq!(result.date_added, saved.date_added);
+        let mut forged = serde_json::to_value(&result).unwrap();
+        forged["dateAdded"] = serde_json::json!("not-a-date");
+        forged["artwork"] = serde_json::json!("../private.webp");
+        let result =
+            update_album(&mut db, path, serde_json::from_value(forged).unwrap(), None).unwrap();
+        assert_eq!(result.date_added, saved.date_added);
+        assert_eq!(result.artwork, saved.artwork);
+        assert!(serde_json::from_str::<Album>(r#"{"id":"bad","title":"\ud800","artist":"Artist","format":"CD","releaseYear":"","favorite":false}"#).is_err());
+    }
+
+    #[test]
+    fn legacy_metadata_is_preserved_until_edited_and_invalid_database_text_returns_an_error() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        save_album(&mut db, path, album("legacy"), None).unwrap();
+        let title = "x".repeat(700);
+        db.execute("UPDATE albums SET title = ?1, release_year = 'unknown', condition = 'Legacy condition',
+                    record_type = 'Legacy type', date_added = 'invalid date', artwork = '../invalid.webp' WHERE id = 'legacy'", [&title]).unwrap();
+        let mut legacy = get_album(&db, "legacy").unwrap().unwrap();
+        legacy.favorite = true;
+        let saved = update_album(&mut db, path, legacy, None).unwrap();
+        assert_eq!(saved.title, title);
+        assert_eq!(saved.release_year, "unknown");
+        assert_eq!(saved.condition.as_deref(), Some("Legacy condition"));
+        assert_eq!(saved.record_type.as_deref(), Some("Legacy type"));
+        assert_eq!(saved.date_added.as_deref(), Some("invalid date"));
+        assert_eq!(saved.artwork.as_deref(), Some("../invalid.webp"));
+        assert!(get_albums(&db).unwrap()[0].artwork.is_none());
+        db.execute(
+            "UPDATE albums SET title = CAST(x'80' AS TEXT) WHERE id = 'legacy'",
+            [],
+        )
+        .unwrap();
+        assert!(get_albums(&db).is_err());
+    }
+
+    #[test]
+    fn ignored_writes_roll_back_album_updates_and_recovery_without_losing_artwork() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let saved = save_album(&mut db, path, album("cover"), Some(COVER.to_vec())).unwrap();
+        db.execute_batch(
+            "CREATE TRIGGER ignore_update BEFORE UPDATE ON albums BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+        let mut changed = get_album(&db, "cover").unwrap().unwrap();
+        changed.title = "Changed".into();
+        assert!(
+            update_album(
+                &mut db,
+                path,
+                changed,
+                Some(ArtworkChange::Replace(COVER.to_vec()))
+            )
+            .is_err()
+        );
+        assert_eq!(fs::read_dir(path.join("artwork")).unwrap().count(), 1);
+        db.execute_batch("DROP TRIGGER ignore_update; CREATE TRIGGER ignore_archive BEFORE INSERT ON undo_albums BEGIN SELECT RAISE(IGNORE); END;").unwrap();
+        assert!(crate::undo::delete(&mut db, "cover").is_err());
+        assert!(get_album(&db, "cover").unwrap().is_some());
+        db.execute_batch("DROP TRIGGER ignore_archive; CREATE TRIGGER ignore_delete BEFORE DELETE ON albums BEGIN SELECT RAISE(IGNORE); END;").unwrap();
+        assert!(crate::undo::delete(&mut db, "cover").is_err());
+        assert!(crate::undo::pending(&db).unwrap().is_empty());
+        db.execute_batch("DROP TRIGGER ignore_delete;").unwrap();
+        let token = crate::undo::delete(&mut db, "cover").unwrap();
+        db.execute_batch(
+            "CREATE TRIGGER ignore_insert BEFORE INSERT ON albums BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+        assert!(crate::undo::restore(&mut db, path, &token).is_err());
+        assert!(get_album(&db, "cover").unwrap().is_none());
+        assert_eq!(crate::undo::pending(&db).unwrap().len(), 1);
+        db.execute_batch("DROP TRIGGER ignore_insert; CREATE TRIGGER ignore_discard BEFORE DELETE ON undo_albums BEGIN SELECT RAISE(IGNORE); END;").unwrap();
+        assert!(crate::undo::restore(&mut db, path, &token).is_err());
+        assert!(crate::undo::discard(&mut db, path, &token).is_err());
+        assert!(get_album(&db, "cover").unwrap().is_none());
+        assert!(artwork::read(path, saved.artwork.as_deref().unwrap()).is_some());
+        db.execute_batch("DROP TRIGGER ignore_discard;").unwrap();
+        crate::undo::restore(&mut db, path, &token).unwrap();
+        db.execute_batch("INSERT INTO shelves (name, rows, columns, orientation) VALUES ('Shelf', 1, 1, 'vertical'); INSERT INTO shelf_placements VALUES (1, 0, 0, 'cover');").unwrap();
+        let token = crate::undo::delete(&mut db, "cover").unwrap();
+        db.execute_batch("CREATE TRIGGER ignore_restored_slot BEFORE INSERT ON shelf_placements BEGIN SELECT RAISE(IGNORE); END;").unwrap();
+        assert!(crate::undo::restore(&mut db, path, &token).is_err());
+        assert!(get_album(&db, "cover").unwrap().is_none());
+        assert_eq!(crate::undo::pending(&db).unwrap().len(), 1);
+        db.execute_batch("DROP TRIGGER ignore_restored_slot;")
+            .unwrap();
+        crate::undo::restore(&mut db, path, &token).unwrap();
+    }
+
+    #[test]
+    fn ignored_profile_writes_and_control_characters_report_errors() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        profile::set_display_name(&db, "Saved").unwrap();
+        assert!(profile::set_display_name(&db, "Bad\0Name").is_err());
+        let original =
+            profile::set_picture(&mut db, path, ArtworkChange::Replace(COVER.to_vec())).unwrap();
+        db.execute_batch("CREATE TRIGGER ignore_profile BEFORE UPDATE ON profile BEGIN SELECT RAISE(IGNORE); END;").unwrap();
+        assert!(profile::set_display_name(&db, "Changed").is_err());
+        assert!(
+            profile::set_picture(&mut db, path, ArtworkChange::Replace(COVER.to_vec())).is_err()
+        );
+        let saved = profile::get(&db).unwrap();
+        assert_eq!(saved.display_name, "Saved");
+        assert_eq!(saved.profile_picture, original);
+        assert_eq!(
+            fs::read_dir(path.join(profile::IMAGE_DIRECTORY))
+                .unwrap()
+                .count(),
+            1
+        );
     }
 
     #[test]
@@ -869,7 +1059,7 @@ mod tests {
             .unwrap()
             .artwork
             .unwrap();
-        let stored = album_artwork(&db, "cover").unwrap().unwrap();
+        let stored = get_album(&db, "cover").unwrap().unwrap().artwork.unwrap();
         assert_eq!(stored, original);
         assert!(artwork::is_filename(&stored));
         assert!(Path::new(&stored).is_relative());
@@ -890,7 +1080,7 @@ mod tests {
         assert_eq!(albums[0].artwork.as_deref(), Some(original.as_str()));
         assert_eq!(artwork::read(app_dir, &original).as_deref(), Some(COVER));
         assert!(albums[1].artwork.is_none());
-        assert_eq!(album_artwork(&db, "plain").unwrap(), None);
+        assert_eq!(get_album(&db, "plain").unwrap().unwrap().artwork, None);
         assert_eq!(albums[1].release_year, "1999");
 
         let mut favorite = album("cover");
@@ -929,7 +1119,7 @@ mod tests {
         )
         .unwrap();
         assert!(removed.artwork.is_none());
-        assert_eq!(album_artwork(&db, "plain").unwrap(), None);
+        assert_eq!(get_album(&db, "plain").unwrap().unwrap().artwork, None);
         assert!(!app_dir.join("artwork").join(original).exists());
         assert_eq!(delete_album(&mut db, app_dir, "cover").unwrap(), 1);
         assert!(!app_dir.join("artwork").join(replacement).exists());

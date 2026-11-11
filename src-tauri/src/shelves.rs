@@ -91,7 +91,7 @@ impl ShelfSettings {
     fn validated(mut self) -> Result<Self> {
         self.name = self.name.trim().to_owned();
         if self.name.is_empty()
-            || self.name.contains('\0')
+            || self.name.chars().any(char::is_control)
             || self.name.chars().count() > MAX_NAME_LENGTH
         {
             return Err(format!(
@@ -154,13 +154,21 @@ const SELECT_SHELVES: &str = "SELECT id, name, rows, columns, orientation,
     (SELECT count(*) FROM shelf_placements WHERE shelf_id = shelves.id) FROM shelves";
 
 fn read_shelf(row: &Row<'_>) -> rusqlite::Result<Shelf> {
+    let rows: i64 = row.get(2)?;
+    let columns: i64 = row.get(3)?;
+    if !(1..=MAX_DIMENSION).contains(&rows) {
+        return Err(rusqlite::Error::IntegralValueOutOfRange(2, rows));
+    }
+    if !(1..=MAX_DIMENSION).contains(&columns) {
+        return Err(rusqlite::Error::IntegralValueOutOfRange(3, columns));
+    }
     Ok(Shelf {
         id: row.get(0)?,
         occupied: row.get(5)?,
         settings: ShelfSettings {
             name: row.get(1)?,
-            rows: row.get(2)?,
-            columns: row.get(3)?,
+            rows,
+            columns,
             orientation: row.get(4)?,
         },
     })
@@ -213,7 +221,7 @@ pub fn load_shelf(connection: &mut Connection, id: i64) -> Result<ShelfLayout> {
 
 pub fn create_shelf(connection: &Connection, settings: ShelfSettings) -> Result<Shelf> {
     let settings = settings.validated()?;
-    connection
+    let inserted = connection
         .execute(
             "INSERT INTO shelves (name, rows, columns, orientation) VALUES (?1, ?2, ?3, ?4)",
             params![
@@ -224,6 +232,9 @@ pub fn create_shelf(connection: &Connection, settings: ShelfSettings) -> Result<
             ],
         )
         .map_err(|error| error.to_string())?;
+    if inserted != 1 {
+        return Err("Shelf creation was not completed.".into());
+    }
     Ok(Shelf {
         id: connection.last_insert_rowid(),
         occupied: 0,
@@ -340,7 +351,8 @@ pub fn update_placements_checked(
                 ));
             }
             if let Some(album) = album {
-                set.execute(params![id, row, column, album])
+                let changed = set
+                    .execute(params![id, row, column, album])
                     .map_err(|error| match error {
                         rusqlite::Error::SqliteFailure(code, _)
                             if code.extended_code
@@ -350,10 +362,21 @@ pub fn update_placements_checked(
                         }
                         _ => error.to_string(),
                     })?;
+                if changed != 1 {
+                    return Err(
+                        "Shelf placement was not completed. The arrangement is unchanged.".into(),
+                    );
+                }
             } else {
-                clear
+                let changed = clear
                     .execute(params![id, row, column])
                     .map_err(|error| error.to_string())?;
+                if changed == 0 && transaction.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM shelf_placements WHERE shelf_id = ?1 AND row_index = ?2 AND column_index = ?3)",
+                    params![id, row, column], |row| row.get::<_, bool>(0),
+                ).map_err(|error| error.to_string())? {
+                    return Err("Shelf removal was not completed. The arrangement is unchanged.".into());
+                }
             }
         }
     }
@@ -446,6 +469,58 @@ mod tests {
         .unwrap();
         assert_eq!(restored.len(), 1);
         assert_eq!(restored[0].column, 0);
+    }
+
+    #[test]
+    fn ignored_shelf_mutations_report_errors_and_roll_back_batches() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        db.execute_batch(
+            "CREATE TRIGGER ignore_shelf BEFORE INSERT ON shelves BEGIN SELECT RAISE(IGNORE); END;",
+        )
+        .unwrap();
+        assert!(create_shelf(&db, settings("Missing", 1, 2)).is_err());
+        db.execute_batch("DROP TRIGGER ignore_shelf;").unwrap();
+        let shelf = create_shelf(&db, settings("Shelf", 1, 2)).unwrap();
+        add_album(&mut db, directory.path(), "one");
+        update_placements(&mut db, shelf.id, vec![set(0, 0, "one")]).unwrap();
+        db.execute_batch("CREATE TRIGGER ignore_slot BEFORE INSERT ON shelf_placements BEGIN SELECT RAISE(IGNORE); END;").unwrap();
+        assert!(
+            update_placements(
+                &mut db,
+                shelf.id,
+                vec![
+                    PlacementChange::Clear { row: 0, column: 0 },
+                    set(0, 1, "one")
+                ]
+            )
+            .is_err()
+        );
+        assert_eq!(placements(&db, shelf.id).unwrap()[0].column, 0);
+        db.execute_batch("DROP TRIGGER ignore_slot; CREATE TRIGGER ignore_clear BEFORE DELETE ON shelf_placements BEGIN SELECT RAISE(IGNORE); END;").unwrap();
+        assert!(
+            update_placements(
+                &mut db,
+                shelf.id,
+                vec![
+                    set(0, 1, "one"),
+                    PlacementChange::Clear { row: 0, column: 0 }
+                ]
+            )
+            .is_err()
+        );
+        assert_eq!(placements(&db, shelf.id).unwrap().len(), 1);
+        db.execute_batch("PRAGMA ignore_check_constraints = ON;")
+            .unwrap();
+        db.execute(
+            "UPDATE shelves SET rows = 10000000 WHERE id = ?1",
+            [shelf.id],
+        )
+        .unwrap();
+        assert!(get_shelves(&db).is_err());
+        db.execute("UPDATE shelves SET rows = 1 WHERE id = ?1", [shelf.id])
+            .unwrap();
+        assert_eq!(get_shelves(&db).unwrap()[0].occupied, 1);
     }
 
     #[test]

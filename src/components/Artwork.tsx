@@ -14,6 +14,7 @@ export function ArtworkImage({ src, alt, fallback, lazy = false }: {
       src={src}
       alt={alt}
       loading={lazy ? "lazy" : "eager"}
+      decoding="async"
       onError={() => setFailedSrc(src)}
     />
   ) : fallback;

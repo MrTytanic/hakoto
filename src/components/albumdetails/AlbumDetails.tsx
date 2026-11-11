@@ -174,6 +174,7 @@ function AlbumDetails({
             <label htmlFor="edit-title">Album Title</label>
             <input
               id="edit-title"
+              maxLength={500}
               autoFocus
               value={title}
               onChange={e => setTitle(e.target.value)}
@@ -184,6 +185,7 @@ function AlbumDetails({
             <label htmlFor="edit-artist">Artist</label>
             <input
               id="edit-artist"
+              maxLength={300}
               value={artist}
               onChange={e => setArtist(e.target.value)}
               disabled={isSaving}
@@ -208,8 +210,8 @@ function AlbumDetails({
             <input
               id="edit-year"
               type="number"
-              min="1850"
-              max="2100"
+              min="1"
+              max="9999"
               value={releaseYear}
               onChange={e => setReleaseYear(e.target.value)}
               disabled={isSaving}

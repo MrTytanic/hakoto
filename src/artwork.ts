@@ -15,7 +15,7 @@ const signatures: Record<string, (header: Uint8Array) => boolean> = {
 export type ArtworkChange = { kind: "remove" } | { kind: "replace"; bytes: number[] };
 
 export function artworkUrl(filename: string | null) {
-  return filename ? convertFileSrc(filename, "artwork") : null;
+  return filename && /^[a-f0-9]{32}\.webp$/.test(filename) ? convertFileSrc(filename, "artwork") : null;
 }
 
 export function checkArtworkFile(file: File, label = "Artwork") {

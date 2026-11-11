@@ -6,16 +6,40 @@ import { createServer } from "vite";
 
 let vite;
 let Collection;
+let artworkUrl;
+let Favorites;
 
 before(async () => {
   vite = await createServer({
     server: { middlewareMode: true, ws: false, watch: null }
   });
   ({ default: Collection } = await vite.ssrLoadModule("/src/pages/Collection.tsx"));
+  ({ artworkUrl } = await vite.ssrLoadModule("/src/artwork.ts"));
+  ({ default: Favorites } = await vite.ssrLoadModule("/src/pages/Favorites.tsx"));
 });
 
 after(async () => {
   await vite?.close();
+});
+
+test("invalid artwork references fall back before reaching the desktop file protocol", () => {
+  for (const filename of [null, "", "../private.webp", "blob:temporary", "https://example.com/image.webp", "00000000000000000000000000000001.webp/extra"]) {
+    assert.equal(artworkUrl(filename), null);
+  }
+});
+
+test("Favorites bounds mounted cards using the saved collection page size", () => {
+  const html = renderToStaticMarkup(createElement(Favorites, {
+    profile: { displayName: "", profilePicture: null },
+    albums: Array.from({ length: 30 }, (_, id) => ({
+      id: String(id), title: `Album ${id}`, artist: "Artist", format: "CD",
+      releaseYear: "", artwork: null, favorite: true
+    })),
+    async onUpdate() {}, async onDelete() {}, onNotify() {}
+  }));
+  assert.equal((html.match(/class="album-card"/g) ?? []).length, 25);
+  assert.match(html, /Showing 1–25 of 30 favorites/);
+  assert.match(html, /Page 1 of 2/);
 });
 
 function render(loadStatus, albums = [], alphabeticalDividers = false) {

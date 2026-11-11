@@ -275,7 +275,7 @@ function App() {
       );
     } catch (error) {
       console.error("Failed to update album:", error);
-      notify("Failed to update album. Please try again.", "error");
+      notify(typeof error === "string" ? error : "Failed to update album. Please try again.", "error");
       throw error;
     }
   }

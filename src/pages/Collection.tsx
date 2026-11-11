@@ -221,7 +221,7 @@ function Collection({
       onAdd(saved);
     } catch (error) {
       console.error("Failed to save album:", error);
-      notify(error instanceof Error ? error.message : "Failed to save album. Please try again.");
+      notify(typeof error === "string" ? error : error instanceof Error ? error.message : "Failed to save album. Please try again.");
       return;
     } finally {
       savingRef.current = false;
@@ -496,6 +496,7 @@ function Collection({
                   <label htmlFor="album-title">Album Title</label>
                   <input
                     id="album-title"
+                    maxLength={500}
                     value={title}
                     onChange={e => setTitle(e.target.value)}
                     required
@@ -506,6 +507,7 @@ function Collection({
                   <label htmlFor="album-artist">Artist</label>
                   <input
                     id="album-artist"
+                    maxLength={300}
                     value={artist}
                     onChange={e => setArtist(e.target.value)}
                     required
@@ -533,8 +535,8 @@ function Collection({
                     <input
                       id="album-year"
                       type="number"
-                      min="1850"
-                      max="2100"
+                      min="1"
+                      max="9999"
                       value={releaseYear}
                       onChange={e => setReleaseYear(e.target.value)}
                     />

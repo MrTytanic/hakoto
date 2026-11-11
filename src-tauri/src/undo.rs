@@ -50,10 +50,8 @@ pub fn delete(connection: &mut Connection, id: &str) -> Result<String, String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|e| e.to_string())?;
-    let album = database::get_albums(&transaction)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .find(|album| album.id == id)
+    let album = database::get_album(&transaction, id)
+        .map_err(|error| error.to_string())?
         .ok_or("Album no longer exists.")?;
     let placements = {
         let mut statement = transaction.prepare(
@@ -82,15 +80,22 @@ pub fn delete(connection: &mut Connection, id: &str) -> Result<String, String> {
     let token: String = transaction
         .query_row("SELECT lower(hex(randomblob(16)))", [], |row| row.get(0))
         .map_err(|e| e.to_string())?;
-    transaction
+    let archived = transaction
         .execute(
             "INSERT INTO undo_albums VALUES (?1, ?2, ?3, unixepoch() + 86400)",
             params![token, payload, snapshot.artwork],
         )
         .map_err(|e| e.to_string())?;
-    transaction
+    if archived != 1 {
+        return Err("The recovery copy could not be saved. Album deletion was canceled.".into());
+    }
+    if transaction
         .execute("DELETE FROM albums WHERE id = ?1", [id])
-        .map_err(|e| e.to_string())?;
+        .map_err(|error| error.to_string())?
+        != 1
+    {
+        return Err("Album deletion was not completed. Nothing was changed.".into());
+    }
     transaction.commit().map_err(|e| e.to_string())?;
     Ok(token)
 }
@@ -117,11 +122,15 @@ pub fn restore(
     }
     snapshot.album.artwork = snapshot.artwork;
     snapshot.album.date_added = snapshot.date_added;
-    database::write_album(&transaction, database::INSERT_ALBUM, &snapshot.album)
-        .map_err(|e| e.to_string())?;
+    if database::write_album(&transaction, database::INSERT_ALBUM, &snapshot.album)
+        .map_err(|error| error.to_string())?
+        != 1
+    {
+        return Err("Album restoration was not completed. The recovery copy is retained.".into());
+    }
     for placement in snapshot.placements {
         // Plain INSERT rejects occupied slots. Foreign keys and bounds triggers reject changed shelves.
-        transaction
+        let restored = transaction
             .execute(
                 "INSERT INTO shelf_placements VALUES (?1, ?2, ?3, ?4)",
                 params![
@@ -134,10 +143,18 @@ pub fn restore(
             .map_err(|e| {
                 format!("A previous shelf position is unavailable. Nothing was restored: {e}")
             })?;
+        if restored != 1 {
+            return Err(
+                "A previous shelf position could not be restored. Nothing was changed.".into(),
+            );
+        }
     }
-    transaction
+    let cleared = transaction
         .execute("DELETE FROM undo_albums WHERE token = ?1", [token])
         .map_err(|e| e.to_string())?;
+    if cleared != 1 {
+        return Err("The recovery copy could not be finalized. Nothing was restored.".into());
+    }
     transaction.commit().map_err(|e| e.to_string())?;
     Ok(snapshot.album)
 }
@@ -154,9 +171,12 @@ pub fn discard(connection: &mut Connection, directory: &Path, token: &str) -> Re
         )
         .optional()
         .map_err(|e| e.to_string())?;
-    transaction
+    let cleared = transaction
         .execute("DELETE FROM undo_albums WHERE token = ?1", [token])
         .map_err(|e| e.to_string())?;
+    if name.is_some() && cleared != 1 {
+        return Err("The recovery copy could not be removed.".into());
+    }
     transaction.commit().map_err(|e| e.to_string())?;
     database::cleanup(connection, directory, name.flatten().as_deref());
     Ok(())
