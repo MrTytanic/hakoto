@@ -1,4 +1,4 @@
-use crate::{artwork, database, shelves};
+use crate::{artwork, crates, database, shelves};
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -11,6 +11,8 @@ struct DeletedAlbum {
     artwork: Option<String>,
     date_added: Option<String>,
     placements: Vec<shelves::Placement>,
+    #[serde(default)]
+    crate_memberships: Vec<crates::ArchivedMembership>,
 }
 
 fn read_archived_album<'de, D: serde::Deserializer<'de>>(
@@ -94,6 +96,8 @@ pub fn delete(connection: &mut Connection, id: &str) -> Result<String, String> {
         date_added: album.date_added.clone(),
         album,
         placements,
+        crate_memberships: crates::memberships(&transaction, id)
+            .map_err(|error| error.to_string())?,
     };
     let payload = serde_json::to_string(&snapshot).map_err(|e| e.to_string())?;
     let token: String = transaction
@@ -167,6 +171,9 @@ pub fn restore(
                 "A previous shelf position could not be restored. Nothing was changed.".into(),
             );
         }
+    }
+    for membership in snapshot.crate_memberships {
+        crates::restore_membership(&transaction, &snapshot.album.id, membership)?;
     }
     let cleared = transaction
         .execute("DELETE FROM undo_albums WHERE token = ?1", [token])

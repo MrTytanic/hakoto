@@ -1,0 +1,133 @@
+.crates-page .profile-header { margin-bottom: 0; }
+
+.crate-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.crate-back { display: inline-flex; align-items: center; gap: 6px; margin-right: auto; }
+
+.crate-list { display: grid; gap: 10px; margin: 0; padding: 0; list-style: none; }
+
+.crate-summary {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.crate-summary:hover { background: var(--surface-hover); }
+.crate-summary:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.crate-summary > svg { flex: none; color: var(--text-muted); }
+.crate-summary-details { display: grid; flex: 1; min-width: 0; gap: 4px; overflow-wrap: anywhere; }
+.crate-summary .crate-description, .crate-count { color: var(--text-muted); }
+.crate-count { font-size: calc(13px * var(--text-scale)); }
+
+#selected-crate-name, .crate-description, .crate-album-info { overflow-wrap: anywhere; }
+.crate-description { white-space: pre-wrap; }
+.crate-error { color: var(--danger); }
+
+.crate-albums {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crate-albums li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.crate-artwork {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+
+.crate-artwork img { width: 100%; height: 100%; object-fit: cover; }
+.crate-album-info { flex: 1 1 160px; min-width: 0; }
+.crate-album-info span { display: block; color: var(--text-muted); }
+.crate-album-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.crate-album-actions button { display: inline-flex; align-items: center; }
+
+.crate-dialog {
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  margin: auto;
+  color: var(--text);
+}
+
+.crate-dialog::backdrop { background: var(--overlay); }
+.crate-dialog-picker::backdrop { background: var(--shadow); backdrop-filter: blur(3px); }
+
+.crate-dialog-picker[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100% - 32px));
+  max-width: none;
+  overflow: hidden;
+}
+
+.crate-dialog-picker .album-modal-header { flex: none; margin-bottom: 16px; }
+.crate-dialog-picker form { display: flex; flex-direction: column; min-height: 0; }
+.crate-dialog-picker .crate-dialog-body { overflow: auto; min-height: 0; padding: 4px 8px; }
+.crate-dialog-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+
+.crate-dialog-picker .crate-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex: none;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.crate-dialog-picker .album-modal-actions { margin: 0 0 0 auto; }
+.crate-selected-count { margin: 0; color: var(--text-strong); }
+.crate-selected-filter { display: flex; align-items: center; gap: 8px; margin-top: 12px; }
+.crate-picker > h3 { margin: 0 0 12px; }
+.crate-picker-toolbar { align-items: end; }
+.crate-picker-toolbar .collection-view-toggle { margin-left: auto; }
+.crate-picker-count { color: var(--text-muted); }
+.crate-picker-more { display: block; margin: 14px auto 0; }
+
+.crate-picker-filters {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+}
+
+.crate-picker-filters summary { cursor: pointer; }
+.crate-picker-filters .album-form-row { margin: 12px 0; }
+.crate-picker-filters .album-format-options { grid-template-columns: repeat(auto-fit, minmax(min(145px, 100%), 1fr)); }
+.crate-picker-filters .album-cancel { margin-top: 8px; }
+.crate-picker .album-grid { grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr)); }
+.crate-dialog :is(button, select, summary, input[type="checkbox"]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
+.crate-dialog .crate-delete { background: var(--danger-action); color: var(--danger-action-text); }
+.crate-dialog .crate-delete:hover { background: var(--danger-action-hover); }
+.crates-page button:disabled { opacity: .5; cursor: default; }

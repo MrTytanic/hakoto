@@ -79,6 +79,30 @@
   max-width: 240px;
 }
 
+.album-card .album-selection-marker {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  display: grid;
+  place-items: center;
+  width: 23px;
+  height: 23px;
+  border: 1px solid var(--text-muted);
+  border-radius: 50%;
+  background: var(--surface-raised);
+}
+
+.album-card[aria-pressed="true"] .album-selection-marker {
+  border-color: var(--action);
+  background: var(--action);
+  color: var(--action-text);
+}
+
+.album-card-frame[data-view="list"] .album-selection-marker {
+  top: 50%;
+  transform: translateY(-50%);
+}
+
 .album-card-actions {
   position: absolute;
   top: 8px;

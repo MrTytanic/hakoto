@@ -6,6 +6,7 @@ type CollectionView = {
   query: string;
   formats: readonly string[];
   sort: CollectionSort;
+  prioritizePinned?: boolean;
 };
 
 const titleOrder = new Intl.Collator(undefined, { sensitivity: "base" });
@@ -18,11 +19,15 @@ export function paginateAlbums(albums: readonly Album[], requestedPage: number, 
   return { pageIndex, pageCount, start, end, albums: albums.slice(start, end) };
 }
 
-export function getVisibleAlbums(albums: readonly Album[], { query, formats, sort }: CollectionView): Album[] {
+export function albumReleaseYear(album: Album) {
+  return album.releaseYear ?? album.originalReleaseYear;
+}
+
+export function getVisibleAlbums(albums: readonly Album[], { query, formats, sort, prioritizePinned = true }: CollectionView): Album[] {
   const search = query.trim().toLowerCase();
-  const prioritizePinned = !search;
-  const pinned = prioritizePinned ? albums.filter(album => album.pinned) : [];
-  const matches = albums.filter(album => (!prioritizePinned || !album.pinned) &&
+  const showPinnedFirst = prioritizePinned && !search;
+  const pinned = showPinnedFirst ? albums.filter(album => album.pinned) : [];
+  const matches = albums.filter(album => (!showPinnedFirst || !album.pinned) &&
     (!formats.length || formats.includes(album.format)) &&
     (!search || album.title.toLowerCase().includes(search) || album.artist.toLowerCase().includes(search))
   );
@@ -41,8 +46,8 @@ function sortMatches(matches: Album[], sort: CollectionSort) {
     case "year-oldest": {
       const missingYear = sort === "year-newest" ? -Infinity : Infinity;
       return matches.sort((a, b) => {
-        const aYear = a.releaseYear ?? a.originalReleaseYear ?? missingYear;
-        const bYear = b.releaseYear ?? b.originalReleaseYear ?? missingYear;
+        const aYear = albumReleaseYear(a) ?? missingYear;
+        const bYear = albumReleaseYear(b) ?? missingYear;
         if (aYear === bYear) return 0;
         return sort === "year-newest" ? bYear - aYear : aYear - bYear;
       });

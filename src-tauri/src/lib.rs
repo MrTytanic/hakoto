@@ -4,6 +4,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 mod artwork;
+mod crates;
 mod database;
 mod metadata;
 mod profile;
@@ -114,6 +115,74 @@ fn read_artwork_bytes(
 #[tauri::command]
 fn get_shelves(state: State<'_, DatabaseState>) -> Result<Vec<shelves::Shelf>, String> {
     state.with_storage(|storage| shelves::get_shelves(&storage.connection))
+}
+
+#[tauri::command]
+fn get_crates(state: State<'_, DatabaseState>) -> Result<Vec<crates::Crate>, String> {
+    state.with_storage(|storage| crates::list(&storage.connection))
+}
+
+#[tauri::command]
+fn save_crate(
+    state: State<'_, DatabaseState>,
+    crate_id: Option<i64>,
+    settings: crates::CrateSettings,
+) -> Result<crates::Crate, String> {
+    state.with_storage(|storage| crates::save(&mut storage.connection, crate_id, settings))
+}
+
+#[tauri::command]
+fn delete_crate(state: State<'_, DatabaseState>, crate_id: i64) -> Result<(), String> {
+    state.with_storage(|storage| crates::delete(&storage.connection, crate_id))
+}
+
+#[tauri::command]
+fn add_crate_album(
+    state: State<'_, DatabaseState>,
+    crate_id: i64,
+    album_id: String,
+) -> Result<crates::Crate, String> {
+    state.with_storage(|storage| crates::add_album(&mut storage.connection, crate_id, &album_id))
+}
+
+#[tauri::command]
+fn remove_crate_album(
+    state: State<'_, DatabaseState>,
+    crate_id: i64,
+    album_id: String,
+) -> Result<crates::RemovedCrateAlbum, String> {
+    state.with_storage(|storage| crates::remove_album(&mut storage.connection, crate_id, &album_id))
+}
+
+#[tauri::command]
+fn undo_remove_crate_album(
+    state: State<'_, DatabaseState>,
+    crate_id: i64,
+    album_id: String,
+    position: i64,
+    expected_album_ids: Vec<String>,
+) -> Result<(), String> {
+    state.with_storage(|storage| {
+        crates::undo_remove_album(
+            &mut storage.connection,
+            crate_id,
+            &album_id,
+            position,
+            &expected_album_ids,
+        )
+    })
+}
+
+#[tauri::command]
+fn move_crate_album(
+    state: State<'_, DatabaseState>,
+    crate_id: i64,
+    album_id: String,
+    direction: crates::MoveDirection,
+) -> Result<crates::Crate, String> {
+    state.with_storage(|storage| {
+        crates::move_album(&mut storage.connection, crate_id, &album_id, direction)
+    })
 }
 
 #[tauri::command]
@@ -284,6 +353,13 @@ pub fn run() {
             })
         })
         .invoke_handler(tauri::generate_handler![
+            get_crates,
+            save_crate,
+            delete_crate,
+            add_crate_album,
+            remove_crate_album,
+            undo_remove_crate_album,
+            move_crate_album,
             save_album,
             get_album_library,
             update_album,

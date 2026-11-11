@@ -1,4 +1,4 @@
-import { Disc3, Ellipsis, Pin } from "lucide-react";
+import { Check, Disc3, Ellipsis, Pin } from "lucide-react";
 import { useEffect, useRef, type PointerEventHandler } from "react";
 import type { Album } from "../../types/Album";
 import { artworkUrl } from "../../artwork";
@@ -14,10 +14,12 @@ type AlbumCardProps = {
   onPointerDown?: PointerEventHandler<HTMLButtonElement>;
   onAction?: (action: AlbumCardAction) => Promise<void>;
   view?: CollectionViewPreference;
+  selected?: boolean;
 };
 
-function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: AlbumCardProps) {
+function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", selected }: AlbumCardProps) {
   const wishlist = album.ownership === "wishlist";
+  const hasActions = Boolean(onAction);
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const busy = useRef(false);
@@ -29,6 +31,7 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: A
   }
 
   useEffect(() => {
+    if (!hasActions) return;
     const outside = (event: Event) => {
       if (menu.current?.open && event.target instanceof Node && !menu.current.contains(event.target)) closeMenu(false);
     };
@@ -47,7 +50,7 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: A
       document.removeEventListener("keydown", escape, true);
       window.removeEventListener("scroll", outside, true);
     };
-  }, []);
+  }, [hasActions]);
 
   async function runAction(action: AlbumCardAction, keyboard: boolean) {
     closeMenu(keyboard);
@@ -65,6 +68,8 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: A
   return (
     <div className="album-card-frame" data-view={view}>
       <button className="album-card" onClick={() => { closeMenu(false); onClick(); }} type="button" onPointerDown={onPointerDown}
+        aria-pressed={selected}
+        aria-label={selected === undefined ? undefined : [album.title, album.artist, album.format, album.releaseYear, album.condition, album.dateAcquired].filter(Boolean).join(", ")}
         onDragStart={onPointerDown ? event => event.preventDefault() : undefined}>
         <div className="album-artwork">
           <ArtworkImage
@@ -82,6 +87,7 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: A
         <h3 title={album.title}>{album.title}</h3>
         <p>{album.artist}</p>
         <span>{album.format || "Format undecided"}</span>
+        {selected !== undefined && <span className="album-selection-marker" aria-hidden="true">{selected && <Check size={15} />}</span>}
       </button>
       {onAction && (
         <details ref={menu} name="album-actions" className="album-card-actions" onBlur={event => {

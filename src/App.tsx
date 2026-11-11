@@ -12,7 +12,7 @@ import Toast from "./components/toast/Toast";
 import Collection, { CollectionLoadError, type AlbumLoadStatus } from "./pages/Collection";
 import Shelves from "./pages/Shelves";
 import Favorites from "./pages/Favorites";
-import Lists from "./pages/Lists";
+import Crates from "./pages/Crates";
 import Statistics from "./pages/Statistics";
 import Settings from "./pages/Settings";
 
@@ -71,7 +71,7 @@ function App() {
   const wishlistAlbums = useMemo(() => albums.filter(album => album.ownership === "wishlist"), [albums]);
   const [albumLoadStatus, setAlbumLoadStatus] = useState<AlbumLoadStatus>("loading");
   const [albumLoadAttempt, setAlbumLoadAttempt] = useState(0);
-  const [shelfRevision, setShelfRevision] = useState(0);
+  const [layoutRevision, setLayoutRevision] = useState(0);
 
   // Notifications
   const [notifications, setNotifications] = useState<ToastData[]>([]);
@@ -129,7 +129,7 @@ function App() {
     setNotifications(prev => prev.map(item => item.id === id ? { ...item, busy: true } : item));
     try {
       await notification.undo();
-      setShelfRevision(value => value + 1);
+      setLayoutRevision(value => value + 1);
       undoBusy.current.delete(id);
       dismissNotification(id);
     } catch (error) {
@@ -289,6 +289,7 @@ function App() {
       const position = albums.findIndex(item => item.id === id);
 
       setAlbums(prev => prev.filter(item => item.id !== id));
+      setLayoutRevision(value => value + 1);
 
       offerDeletedUndo(token, album?.title ?? "Album", position);
     } catch (error) {
@@ -321,7 +322,7 @@ function App() {
 
     "Shelf Mode": (
       <Shelves
-        shelfRevision={shelfRevision}
+        shelfRevision={layoutRevision}
         onUndo={notifyUndo}
         profile={profile}
         albums={ownedAlbums}
@@ -359,7 +360,9 @@ function App() {
         onAcquire={acquireAlbum}
       />
     ),
-    Lists: <Lists profile={profile} />,
+    Crates: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
+      <Crates profile={profile} albums={ownedAlbums} revision={layoutRevision} onUndo={notifyUndo} />
+    ),
     Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : <Statistics profile={profile} albums={ownedAlbums} />,
     Settings: (
       <Settings
