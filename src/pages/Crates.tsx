@@ -51,8 +51,8 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
       : [...current, updated]);
   }
 
-  async function save(settings: CrateSettings, crateId?: number) {
-    const updated = await invoke<Crate>("save_crate", { settings, crateId });
+  async function save(settings: CrateSettings, crateId?: number, albumIds?: string[]) {
+    const updated = await invoke<Crate>("save_crate", { settings: { ...settings, albumIds }, crateId });
     saveResult(updated);
     setSelectedId(updated.id);
   }
@@ -93,7 +93,7 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
       <div className="collection-top">
         <ProfileHeader profile={profile} title="Crates" />
         <button ref={newCrateButton} className="collection-add" type="button" disabled={loadStatus !== "ready" || busy}
-          onClick={() => setDialog({ kind: "create" })}><Plus size={17} aria-hidden="true" />New Crate</button>
+          onClick={() => setDialog({ kind: "create" })}><Plus size={17} aria-hidden="true" />Create Crate</button>
       </div>
 
       {error && <p className="crate-error" role="alert">{error}</p>}
@@ -152,7 +152,7 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
         </section>
       )}
 
-      {dialog && <CrateDialog action={dialog} onSave={save} onDelete={removeCrate} onClose={() => setDialog(undefined)} />}
+      {dialog && <CrateDialog action={dialog} albums={albums} onSave={save} onDelete={removeCrate} onClose={() => setDialog(undefined)} />}
     </div>
   );
 }

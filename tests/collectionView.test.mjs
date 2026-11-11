@@ -125,6 +125,8 @@ test("pins take priority only when search is empty", () => {
   const input = [...albums.slice(0, 5), pinned];
   const results = getVisibleAlbums(input, { query: "", formats: ["CD"], sort: "title-asc" });
   assert.deepEqual(results.map(album => album.id), ["h", "a", "m", "z"]);
+  const pickerResults = getVisibleAlbums(input, { query: "", formats: ["CD"], sort: "title-asc", prioritizePinned: false });
+  assert.deepEqual(pickerResults.map(album => album.id), ["a", "m", "z"]);
   assert.deepEqual(groupVisibleAlbums(results, "title-asc").map(group => group.heading), ["Pinned", "A", "M", "Z"]);
   const searched = getVisibleAlbums(input.map(album => album.id === "z" ? { ...album, pinned: true } : album), {
     query: "Echoes", formats: ["CD"], sort: "title-asc"

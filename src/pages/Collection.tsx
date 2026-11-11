@@ -1,7 +1,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, Disc3, Grid2X2, List, Plus, SlidersHorizontal, X } from "lucide-react";
+import { AlertCircle, Disc3, Plus, SlidersHorizontal, X } from "lucide-react";
 import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
@@ -10,6 +10,7 @@ import { getVisibleAlbums, groupVisibleAlbums, paginateAlbums, type CollectionSo
 import { collectionPageSizePreference, collectionViewPreference } from "../settings";
 import AlbumMetadataFields, { AlbumReleaseFields, albumMetadata, albumReleaseDraft, albumReleaseMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
 import AlbumSearch from "../components/AlbumSearch";
+import { AlbumFormatOptions, CollectionSortSelect, CollectionViewToggle } from "../components/CollectionControls";
 import AlbumPagination from "../components/AlbumPagination";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
@@ -304,40 +305,16 @@ function Collection({
             query={query} onChange={setQuery} inputRef={searchRef} disabled={controlsDisabled} />
 
           <div className="collection-sort-tools">
-            <div className="album-form-field">
-              <label htmlFor="collection-sort">Sort by</label>
-              <select
-                id="collection-sort"
-                value={sort}
-                disabled={controlsDisabled}
-                aria-describedby={dividersPaused ? "collection-dividers-paused" : undefined}
-                onChange={e => setSort(e.target.value as CollectionSort)}
-              >
-                <option value="collection">Date added</option>
-                <option value="title-asc">Title A–Z</option>
-                <option value="title-desc">Title Z–A</option>
-                <option value="year-newest">Release year (newest)</option>
-                <option value="year-oldest">Release year (oldest)</option>
-              </select>
-            </div>
+            <CollectionSortSelect id="collection-sort" sort={sort} onChange={setSort} disabled={controlsDisabled}
+              description={dividersPaused ? "collection-dividers-paused" : undefined} />
             <button type="button" className="collection-filter-toggle" ref={filterButton} popoverTarget={filterId}
               disabled={controlsDisabled} aria-label={formats.length ? `Format filters, ${formats.length} selected` : "Format filters"}>
               <SlidersHorizontal size={17} aria-hidden="true" />
               {formats.length > 0 && <span aria-hidden="true">{formats.length}</span>}
             </button>
             <div id={filterId} ref={filterPanel} popover="auto" className="collection-filter-panel" inert={controlsDisabled}>
-              <fieldset>
-                <legend>Formats</legend>
-                {(wishlist ? ["", ...albumFormats] : albumFormats).map(item => (
-                  <label key={item}>
-                    <input type="checkbox" checked={formats.includes(item)} onChange={event => {
-                      const checked = event.target.checked;
-                      setFormats(current => checked ? [...current, item] : current.filter(format => format !== item));
-                    }} />
-                    {item || "Format undecided"}
-                  </label>
-                ))}
-              </fieldset>
+              <AlbumFormatOptions options={wishlist ? ["", ...albumFormats] : albumFormats} formats={formats}
+                onToggle={(item, checked) => setFormats(current => checked ? [...current, item] : current.filter(format => format !== item))} />
               <div className="collection-filter-actions">
                 <button type="button" className="album-cancel" aria-disabled={!formats.length}
                   onClick={() => { if (formats.length) setFormats([]); }}>Clear formats</button>
@@ -351,14 +328,7 @@ function Collection({
           <p className="collection-result-count" role="status" tabIndex={-1} ref={statusRef}>
             {loadStatus === "loading" ? "Loading your albums…" : null}
           </p>
-          <div className="collection-view-toggle" role="group" aria-label={`${pageTitle} view`}>
-            <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}>
-              <Grid2X2 size={17} aria-hidden="true" />
-            </button>
-            <button type="button" aria-label="List view" aria-pressed={view === "list"} onClick={() => setView("list")}>
-              <List size={17} aria-hidden="true" />
-            </button>
-          </div>
+          <CollectionViewToggle label={`${pageTitle} view`} view={view} onChange={setView} />
         </div>
 
         {dividersPaused && (

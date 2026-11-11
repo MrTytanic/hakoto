@@ -33,6 +33,8 @@ pub fn migrate(connection: &Connection) -> rusqlite::Result<()> {
 pub struct CrateSettings {
     name: String,
     description: Option<String>,
+    #[serde(default, rename = "albumIds")]
+    album_ids: Vec<String>,
 }
 
 #[derive(Serialize)]
@@ -103,6 +105,9 @@ pub fn save(
     if name.is_empty() || name.chars().any(char::is_control) {
         return Err("Enter a crate name without control characters.".into());
     }
+    if id.is_some() && !settings.album_ids.is_empty() {
+        return Err("Use the crate membership controls to edit its albums.".into());
+    }
     let description = settings
         .description
         .as_deref()
@@ -128,7 +133,11 @@ pub fn save(
             ),
             "Could not create this crate.",
         )?;
-        transaction.last_insert_rowid()
+        let id = transaction.last_insert_rowid();
+        for (position, album_id) in (0i64..).zip(&settings.album_ids) {
+            insert_album(&transaction, id, album_id, position)?;
+        }
+        id
     };
     let updated = read_crate(&transaction, id)?;
     transaction.commit().map_err(|error| error.to_string())?;
@@ -164,18 +173,22 @@ fn next_position(connection: &Connection, id: i64) -> rusqlite::Result<i64> {
     )
 }
 
+fn insert_album(connection: &Connection, id: i64, album_id: &str, position: i64) -> Result<()> {
+    require_write(
+        connection.execute(
+            "INSERT INTO crate_albums (crate_id, album_id, position)
+             SELECT ?1, albums.id, ?3 FROM albums WHERE albums.id = ?2 AND ownership = 'owned'
+             ON CONFLICT (crate_id, album_id) DO NOTHING",
+            params![id, album_id, position],
+        ),
+        "Only owned albums can be added, once per crate.",
+    )
+}
+
 pub fn add_album(connection: &mut Connection, id: i64, album_id: &str) -> Result<Crate> {
     edit_membership(connection, id, |transaction| {
         let position = next_position(transaction, id).map_err(|error| error.to_string())?;
-        require_write(
-            transaction.execute(
-                "INSERT INTO crate_albums (crate_id, album_id, position)
-             SELECT ?1, albums.id, ?3 FROM albums WHERE albums.id = ?2 AND ownership = 'owned'
-             ON CONFLICT (crate_id, album_id) DO NOTHING",
-                params![id, album_id, position],
-            ),
-            "Only owned albums can be added, once per crate.",
-        )
+        insert_album(transaction, id, album_id, position)
     })
 }
 
@@ -303,6 +316,7 @@ mod tests {
         CrateSettings {
             name: name.into(),
             description: description.map(str::to_owned),
+            album_ids: Vec::new(),
         }
     }
 
@@ -316,6 +330,26 @@ mod tests {
              ('wish', 'Wish', 'Artist', '', 'wishlist');",
             )
             .unwrap();
+    }
+
+    #[test]
+    fn create_saves_selected_owned_albums_in_order_or_rolls_back() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        add_fixture_albums(&db);
+
+        for invalid in ["first", "wish", "missing"] {
+            let mut draft = settings("Invalid crate", None);
+            draft.album_ids = vec!["first".into(), invalid.into()];
+            assert!(save(&mut db, None, draft).is_err());
+            assert!(list(&db).unwrap().is_empty());
+        }
+
+        let mut draft = settings("Selected albums", None);
+        draft.album_ids = vec!["second".into(), "first".into()];
+        let created = save(&mut db, None, draft).unwrap();
+        assert_eq!(created.album_ids, ["second", "first"]);
+        assert_eq!(list(&db).unwrap()[0].album_ids, ["second", "first"]);
     }
 
     #[test]

@@ -283,7 +283,7 @@
   box-shadow: 0 8px 24px var(--shadow);
 }
 
-.collection-filter-panel fieldset {
+.album-format-options {
   display: grid;
   min-width: 0;
   gap: 2px;
@@ -292,12 +292,12 @@
   border: 0;
 }
 
-.collection-filter-panel legend {
+.album-format-options legend {
   margin-bottom: 6px;
   font-weight: 650;
 }
 
-.collection-filter-panel label {
+.album-format-options label {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -305,7 +305,7 @@
   cursor: pointer;
 }
 
-.collection-filter-panel input {
+.album-format-options input {
   flex: none;
   width: 16px;
   height: 16px;

@@ -1,7 +1,7 @@
 import { useState } from "react";
 import {
   Disc3, Library, Layers3, Heart, Bookmark,
-  ListMusic, ChartNoAxesColumn, Settings,
+  Archive, ChartNoAxesColumn, Settings,
   PanelLeftClose, PanelLeftOpen
 } from "lucide-react";
 import "./Sidebar.css";
@@ -10,7 +10,7 @@ const navigation = [
   { label: "Collection", icon: Library },
   { label: "Shelf Mode", icon: Layers3 },
   { label: "Favorites", icon: Heart },
-  { label: "Crates", icon: ListMusic },
+  { label: "Crates", icon: Archive },
   { label: "Wishlist", icon: Bookmark },
   { label: "Statistics", icon: ChartNoAxesColumn }
 ];

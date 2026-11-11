@@ -60,6 +60,54 @@
 }
 
 .crate-dialog::backdrop { background: var(--overlay); }
+.crate-dialog-create::backdrop { background: var(--shadow); backdrop-filter: blur(3px); }
+
+.crate-dialog-create[open] {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, calc(100% - 32px));
+  max-width: none;
+  overflow: hidden;
+}
+
+.crate-dialog-create .album-modal-header { flex: none; margin-bottom: 16px; }
+.crate-dialog-create form { display: flex; flex-direction: column; min-height: 0; }
+.crate-dialog-create .crate-dialog-body { overflow: auto; min-height: 0; padding: 4px 8px; }
+.crate-dialog-fields { min-width: 0; margin: 0; padding: 0; border: 0; }
+
+.crate-dialog-create .crate-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  flex: none;
+  gap: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.crate-dialog-create .album-modal-actions { margin: 0 0 0 auto; }
+.crate-selected-count { margin: 0; color: var(--text-strong); }
+.crate-picker > h3 { margin: 0 0 12px; }
+.crate-picker-toolbar { align-items: end; }
+.crate-picker-toolbar .collection-view-toggle { margin-left: auto; }
+.crate-picker-count { color: var(--text-muted); }
+.crate-picker-more { display: block; margin: 14px auto 0; }
+
+.crate-picker-filters {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 7px;
+}
+
+.crate-picker-filters summary { cursor: pointer; }
+.crate-picker-filters .album-form-row { margin: 12px 0; }
+.crate-picker-filters .album-format-options { grid-template-columns: repeat(auto-fit, minmax(min(145px, 100%), 1fr)); }
+.crate-picker-filters .album-cancel { margin-top: 8px; }
+.crate-picker .album-grid { grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr)); }
+.crate-dialog :is(button, select, summary, input[type="checkbox"]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+
 .crate-dialog .crate-delete { background: var(--danger-action); color: var(--danger-action-text); }
 .crate-dialog .crate-delete:hover { background: var(--danger-action-hover); }
 .crates-page button:disabled { opacity: .5; cursor: default; }
