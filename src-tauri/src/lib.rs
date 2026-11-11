@@ -1,9 +1,17 @@
-use std::{fs, sync::Mutex};
+use std::{
+    fs,
+    path::PathBuf,
+    sync::{
+        Mutex,
+        atomic::{AtomicU32, Ordering},
+    },
+};
 use tauri::{AppHandle, Manager, State, http};
 use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 mod artwork;
+mod collection_csv;
 mod crates;
 mod database;
 mod metadata;
@@ -15,6 +23,19 @@ mod undo;
 struct DatabaseState {
     storage: Mutex<Result<storage::Storage, String>>,
     relocation: Mutex<()>,
+    csv_import: Mutex<Option<PendingCsvImport>>,
+}
+
+struct PendingCsvImport {
+    token: u32,
+    directory: PathBuf,
+    prepared: collection_csv::PreparedImport,
+}
+
+#[derive(serde::Serialize)]
+struct CsvPreview {
+    token: u32,
+    rows: Vec<collection_csv::PreviewRow>,
 }
 
 impl DatabaseState {
@@ -253,6 +274,114 @@ fn set_profile_picture(
 }
 
 #[tauri::command]
+async fn export_collection_csv(
+    app: AppHandle,
+    include_wishlist: bool,
+) -> Result<Option<usize>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("Export Hakoto collection")
+            .set_file_name("hakoto-collection.csv")
+            .add_filter("CSV files", &["csv"])
+            .blocking_save_file()
+        else {
+            return Ok(None);
+        };
+        let path = path.into_path().map_err(|error| error.to_string())?;
+        let library = app.state::<DatabaseState>().with_storage(|storage| {
+            database::get_album_library(&mut storage.connection).map_err(|error| error.to_string())
+        })?;
+        collection_csv::export(&path, library, include_wishlist).map(Some)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn preview_collection_csv(app: AppHandle) -> Result<Option<CsvPreview>, String> {
+    static NEXT_TOKEN: AtomicU32 = AtomicU32::new(1);
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(path) = app
+            .dialog()
+            .file()
+            .set_title("Import Hakoto collection")
+            .add_filter("CSV files", &["csv"])
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+        let path = path.into_path().map_err(|error| error.to_string())?;
+        let text = collection_csv::read(&path)?;
+        let state = app.state::<DatabaseState>();
+        let (directory, prepared) = state.with_storage(|storage| {
+            Ok((
+                storage.directory.clone(),
+                collection_csv::prepare(&storage.connection, &text)?,
+            ))
+        })?;
+        let token = NEXT_TOKEN.fetch_add(1, Ordering::Relaxed);
+        let rows = prepared.preview();
+        *state.csv_import.lock().map_err(|error| error.to_string())? = Some(PendingCsvImport {
+            token,
+            directory,
+            prepared,
+        });
+        Ok(Some(CsvPreview { token, rows }))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn discard_collection_csv_preview(
+    state: State<'_, DatabaseState>,
+    token: u32,
+) -> Result<(), String> {
+    let mut pending = state.csv_import.lock().map_err(|error| error.to_string())?;
+    if pending
+        .as_ref()
+        .is_some_and(|pending| pending.token == token)
+    {
+        *pending = None;
+    }
+    Ok(())
+}
+
+#[tauri::command]
+async fn import_collection_csv(
+    app: AppHandle,
+    token: u32,
+    import_duplicates: Vec<usize>,
+) -> Result<Vec<database::Album>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        let mut pending = state.csv_import.lock().map_err(|error| error.to_string())?;
+        let preview = pending
+            .as_ref()
+            .filter(|preview| preview.token == token)
+            .ok_or("Preview the CSV again before importing.")?;
+        let imported = state.with_storage(|storage| {
+            if storage.directory != preview.directory {
+                return Err(
+                    "The storage location changed. Preview the CSV again before importing.".into(),
+                );
+            }
+            collection_csv::import(
+                &mut storage.connection,
+                &preview.prepared,
+                &import_duplicates,
+            )
+        })?;
+        *pending = None;
+        Ok(imported)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
 fn get_storage_info(state: State<'_, DatabaseState>) -> Result<storage::StorageInfo, String> {
     state.with_storage(|storage| storage.info().map_err(|error| error.to_string()))
 }
@@ -380,6 +509,10 @@ pub fn run() {
             set_display_name,
             set_profile_picture,
             get_storage_info,
+            export_collection_csv,
+            preview_collection_csv,
+            discard_collection_csv_preview,
+            import_collection_csv,
             open_storage_location,
             relocate_storage
         ])
@@ -416,6 +549,7 @@ pub fn run() {
             app.manage(DatabaseState {
                 storage: Mutex::new(storage),
                 relocation: Mutex::new(()),
+                csv_import: Mutex::new(None),
             });
 
             Ok(())

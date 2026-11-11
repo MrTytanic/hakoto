@@ -384,6 +384,7 @@ function App() {
         onAnimationsEnabledChange={enabled => setAnimations(enabled ? "on" : "off")}
         alphabeticalDividers={alphabeticalDividers}
         onAlphabeticalDividersChange={changeAlphabeticalDividers}
+        onAlbumsImported={imported => setAlbums(current => [...new Map([...current, ...imported].map(album => [album.id, album])).values()])}
       />
     )
   };

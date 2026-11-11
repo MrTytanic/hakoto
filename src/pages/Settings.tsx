@@ -1,6 +1,7 @@
 import { Upload, Trash2 } from "lucide-react";
 import ProfileHeader, { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile, ProfileLoadStatus } from "../types/Profile";
+import type { Album } from "../types/Album";
 import { animationDurations, type AnimationDurationPreference, type TextScalePreference, type ThemePreference } from "../settings";
 import StorageSettings from "./StorageSettings";
 import "./Settings.css";
@@ -25,6 +26,7 @@ type SettingsProps = ProfileSettingsProps & {
   onAnimationsEnabledChange: (enabled: boolean) => void;
   alphabeticalDividers: boolean;
   onAlphabeticalDividersChange: (enabled: boolean) => void;
+  onAlbumsImported: (albums: Album[]) => void;
 };
 
 const themeOptions = [
@@ -111,7 +113,7 @@ function ProfileSettings({
 function Settings({
   theme, onThemeChange, textScale, onTextScaleChange, animationsEnabled, onAnimationsEnabledChange,
   animationDuration, onAnimationDurationChange,
-  alphabeticalDividers, onAlphabeticalDividersChange, ...profileSettings
+  alphabeticalDividers, onAlphabeticalDividersChange, onAlbumsImported, ...profileSettings
 }: SettingsProps) {
   return (
     <div className="settings-page">
@@ -220,7 +222,7 @@ function Settings({
           <h2 id="settings-storage">Storage</h2>
           <p>See how Hakoto stores your data.</p>
         </div>
-        <StorageSettings profilePicture={profileSettings.profile.profilePicture} />
+        <StorageSettings profilePicture={profileSettings.profile.profilePicture} onAlbumsImported={onAlbumsImported} />
       </section>
     </div>
   );

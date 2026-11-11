@@ -143,7 +143,7 @@ fn import_legacy_albums(
     Ok(())
 }
 
-#[derive(serde::Deserialize, serde::Serialize)]
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Album {
     pub id: String,
@@ -177,7 +177,7 @@ pub enum Ownership {
 }
 
 impl Ownership {
-    fn as_str(self) -> &'static str {
+    pub(crate) fn as_str(self) -> &'static str {
         match self {
             Self::Owned => "owned",
             Self::Wishlist => "wishlist",
