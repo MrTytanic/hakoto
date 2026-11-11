@@ -1,16 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { ArrowDown, ArrowUp, Disc3, Plus } from "lucide-react";
+import { Archive, ArrowDown, ArrowLeft, ArrowUp, Disc3, Plus } from "lucide-react";
 import { artworkUrl } from "../artwork";
 import { ArtworkImage } from "../components/Artwork";
 import CrateDialog, { type CrateDialogAction } from "../components/CrateDialog";
 import ProfileHeader from "../components/ProfileHeader";
+import type { UndoNotice } from "../components/toast/Toast";
 import type { Album } from "../types/Album";
 import type { Crate, CrateSettings } from "../types/Crate";
 import type { Profile } from "../types/Profile";
 import "./Crates.css";
 
-export default function Crates({ profile, albums, revision }: { profile: Profile; albums: Album[]; revision: number }) {
+const albumCount = (count: number) => `${count} ${count === 1 ? "album" : "albums"}`;
+
+export default function Crates({ profile, albums, revision, onUndo }: {
+  profile: Profile;
+  albums: Album[];
+  revision: number;
+  onUndo: UndoNotice;
+}) {
   const [crates, setCrates] = useState<Crate[]>([]);
   const [loadStatus, setLoadStatus] = useState<"loading" | "ready" | "error">("loading");
   const [attempt, setAttempt] = useState(0);
@@ -20,14 +28,12 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
   const [error, setError] = useState("");
   const pending = useRef(false);
   const newCrateButton = useRef<HTMLButtonElement>(null);
+  const detailHeading = useRef<HTMLHeadingElement>(null);
+  const crateList = useRef<HTMLUListElement>(null);
 
-  const selected = crates.find(crate => crate.id === selectedId) ?? crates[0];
+  const selected = crates.find(crate => crate.id === selectedId);
   const albumsById = useMemo(() => new Map(albums.map(album => [album.id, album])), [albums]);
-  const sortedAlbums = useMemo(() => [...albums].sort((left, right) =>
-    left.title.localeCompare(right.title) || left.artist.localeCompare(right.artist)), [albums]);
   const members = (selected?.albumIds ?? []).flatMap(id => albumsById.get(id) ?? []);
-  const memberIds = new Set(selected?.albumIds);
-  const available = sortedAlbums.filter(album => !memberIds.has(album.id));
 
   useEffect(() => {
     let current = true;
@@ -39,7 +45,7 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
       setLoadStatus("ready");
     }, failure => {
       if (!current) return;
-      setError(String(failure));
+      setError(`Couldn’t load crates. ${String(failure)}`);
       setLoadStatus("error");
     });
     return () => { current = false; };
@@ -51,10 +57,24 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
       : [...current, updated]);
   }
 
-  async function save(settings: CrateSettings, crateId?: number, albumIds?: string[]) {
-    const updated = await invoke<Crate>("save_crate", { settings: { ...settings, albumIds }, crateId });
+  function openCrate(id: number) {
+    setSelectedId(id);
+    setError("");
+    requestAnimationFrame(() => detailHeading.current?.focus());
+  }
+
+  function backToCrates() {
+    setSelectedId(undefined);
+    setError("");
+    requestAnimationFrame(() => crateList.current?.querySelector<HTMLButtonElement>(`[data-crate-id="${selectedId}"]`)?.focus());
+  }
+
+  async function save(settings: CrateSettings, albumIds: string[], crate?: Crate) {
+    const updated = await invoke<Crate>("save_crate", {
+      settings: { ...settings, albumIds, expectedAlbumIds: crate?.albumIds }, crateId: crate?.id
+    });
     saveResult(updated);
-    setSelectedId(updated.id);
+    if (!crate) openCrate(updated.id);
   }
 
   async function removeCrate(crateId: number) {
@@ -64,73 +84,79 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
     requestAnimationFrame(() => newCrateButton.current?.focus());
   }
 
-  async function changeMembership(command: string, crateId: number, albumId: string, direction?: "up" | "down") {
-    if (pending.current) return false;
+  async function changeMembership(change: () => Promise<void>) {
+    if (pending.current) return;
     pending.current = true;
     setBusy(true);
     setError("");
     try {
-      saveResult(await invoke<Crate>(command, { crateId, albumId, direction }));
-      return true;
+      await change();
     } catch (failure) {
-      setError(String(failure));
-      return false;
+      setError(`Couldn’t update this crate. ${String(failure)}`);
     } finally {
       pending.current = false;
       setBusy(false);
     }
   }
 
-  async function addAlbum(event: FormEvent<HTMLFormElement>, crateId: number) {
-    event.preventDefault();
-    const form = event.currentTarget;
-    const albumId = new FormData(form).get("albumId");
-    if (typeof albumId === "string" && albumId && await changeMembership("add_crate_album", crateId, albumId)) form.reset();
+  function moveAlbum(crateId: number, albumId: string, direction: "up" | "down") {
+    return changeMembership(async () => {
+      saveResult(await invoke<Crate>("move_crate_album", { crateId, albumId, direction }));
+    });
+  }
+
+  function removeAlbum(crate: Crate, album: Album) {
+    return changeMembership(async () => {
+      const { updated, position } = await invoke<{ updated: Crate; position: number }>("remove_crate_album", {
+        crateId: crate.id, albumId: album.id
+      });
+      saveResult(updated);
+      onUndo(`“${album.title}” removed from ${crate.name}.`, () => invoke<void>("undo_remove_crate_album", {
+        crateId: crate.id, albumId: album.id, position, expectedAlbumIds: updated.albumIds
+      }));
+    });
   }
 
   return (
     <div className="collection-page crates-page">
       <div className="collection-top">
         <ProfileHeader profile={profile} title="Crates" />
-        <button ref={newCrateButton} className="collection-add" type="button" disabled={loadStatus !== "ready" || busy}
+        {!selected && <button ref={newCrateButton} className="collection-add" type="button" disabled={loadStatus !== "ready" || busy}
           onClick={() => setDialog({ kind: "create" })}><Plus size={17} aria-hidden="true" />Create Crate</button>
+        }
       </div>
 
       {error && <p className="crate-error" role="alert">{error}</p>}
       {loadStatus === "loading" ? <p role="status">Loading crates…</p> : loadStatus === "error" ? (
         <button className="album-cancel" type="button" onClick={() => setAttempt(current => current + 1)}>Try again</button>
       ) : !selected ? (
-        <div className="collection-empty"><h2>No crates yet</h2><p>Create a crate to organize albums in a custom order.</p></div>
+        crates.length === 0 ? (
+          <div className="collection-empty"><h2>No crates yet</h2><p>Create a crate to organize albums in a custom order.</p></div>
+        ) : (
+          <ul ref={crateList} className="crate-list" aria-label="Saved crates">
+            {crates.map(crate => <li key={crate.id}>
+              <button className="crate-summary" type="button" data-crate-id={crate.id} onClick={() => openCrate(crate.id)}>
+                <Archive size={22} aria-hidden="true" />
+                <span className="crate-summary-details">
+                  <strong>{crate.name}</strong>
+                  {crate.description && <span className="crate-description">{crate.description}</span>}
+                </span>
+                <span className="crate-count">{albumCount(crate.albumIds.length)}</span>
+              </button>
+            </li>)}
+          </ul>
+        )
       ) : (
         <section aria-labelledby="selected-crate-name">
           <div className="crate-toolbar">
-            <div className="album-form-field">
-              <label htmlFor="crate-picker">Crate</label>
-              <select id="crate-picker" value={selected.id} disabled={busy} onChange={event => {
-                setSelectedId(Number(event.target.value));
-                setError("");
-              }}>
-                {crates.map(crate => <option key={crate.id} value={crate.id}>{crate.name}</option>)}
-              </select>
-            </div>
+            <button className="album-cancel crate-back" type="button" disabled={busy} onClick={backToCrates}><ArrowLeft size={16} aria-hidden="true" />All Crates</button>
             <button className="album-cancel" type="button" disabled={busy} onClick={() => setDialog({ kind: "edit", crate: selected })}>Edit Crate</button>
             <button className="album-cancel" type="button" disabled={busy} onClick={() => setDialog({ kind: "delete", crate: selected })}>Delete Crate</button>
           </div>
-          <h2 id="selected-crate-name">{selected.name}</h2>
+          <h2 id="selected-crate-name" ref={detailHeading} tabIndex={-1}>{selected.name}</h2>
+          <p className="crate-count">{albumCount(selected.albumIds.length)}</p>
           {selected.description && <p className="crate-description">{selected.description}</p>}
-          <form key={selected.id} className="crate-toolbar" onSubmit={event => void addAlbum(event, selected.id)}>
-            <div className="album-form-field">
-              <label htmlFor="crate-album-picker">Album</label>
-              <select id="crate-album-picker" name="albumId" defaultValue="" disabled={busy || !available.length} required>
-                <option value="" disabled>{available.length ? "Choose an album" : "No albums available"}</option>
-                {available.map(album => <option key={album.id} value={album.id}>
-                  {[`${album.title} — ${album.artist}`, album.format, album.releaseYear, album.condition, album.dateAcquired].filter(Boolean).join(" · ")}
-                </option>)}
-              </select>
-            </div>
-            <button className="album-submit" type="submit" disabled={busy || !available.length}>Add Album</button>
-          </form>
-          {members.length === 0 ? <p>This crate is empty.</p> : (
+          {members.length === 0 ? <p>This crate is empty. Edit it to add albums.</p> : (
             <ol className="crate-albums">
               {members.map((album, index) => (
                 <li key={album.id}>
@@ -139,11 +165,11 @@ export default function Crates({ profile, albums, revision }: { profile: Profile
                   <div className="crate-album-info"><strong>{album.title}</strong><span>{album.artist} · {album.format}</span></div>
                   <div className="crate-album-actions">
                     <button type="button" className="album-cancel" aria-label={`Move ${album.title} up`} disabled={busy || index === 0}
-                      onClick={() => void changeMembership("move_crate_album", selected.id, album.id, "up")}><ArrowUp size={16} aria-hidden="true" /></button>
+                      onClick={() => void moveAlbum(selected.id, album.id, "up")}><ArrowUp size={16} aria-hidden="true" /></button>
                     <button type="button" className="album-cancel" aria-label={`Move ${album.title} down`} disabled={busy || index === members.length - 1}
-                      onClick={() => void changeMembership("move_crate_album", selected.id, album.id, "down")}><ArrowDown size={16} aria-hidden="true" /></button>
+                      onClick={() => void moveAlbum(selected.id, album.id, "down")}><ArrowDown size={16} aria-hidden="true" /></button>
                     <button type="button" className="album-cancel" aria-label={`Remove ${album.title} from crate`} disabled={busy}
-                      onClick={() => void changeMembership("remove_crate_album", selected.id, album.id)}>Remove</button>
+                      onClick={() => void removeAlbum(selected, album)}>Remove</button>
                   </div>
                 </li>
               ))}

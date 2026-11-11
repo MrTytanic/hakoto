@@ -1,3 +1,5 @@
+use std::collections::HashSet;
+
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
@@ -30,11 +32,12 @@ pub fn migrate(connection: &Connection) -> rusqlite::Result<()> {
 }
 
 #[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct CrateSettings {
     name: String,
     description: Option<String>,
-    #[serde(default, rename = "albumIds")]
-    album_ids: Vec<String>,
+    album_ids: Option<Vec<String>>,
+    expected_album_ids: Option<Vec<String>>,
 }
 
 #[derive(Serialize)]
@@ -105,9 +108,6 @@ pub fn save(
     if name.is_empty() || name.chars().any(char::is_control) {
         return Err("Enter a crate name without control characters.".into());
     }
-    if id.is_some() && !settings.album_ids.is_empty() {
-        return Err("Use the crate membership controls to edit its albums.".into());
-    }
     let description = settings
         .description
         .as_deref()
@@ -124,6 +124,13 @@ pub fn save(
             ),
             "Could not update this crate.",
         )?;
+        if let Some(selected) = &settings.album_ids {
+            let current = read_crate(&transaction, id)?.album_ids;
+            if settings.expected_album_ids.as_deref() != Some(current.as_slice()) {
+                return Err("This crate’s albums changed. Reload Crates and try again.".into());
+            }
+            edit_selection(&transaction, id, &current, selected)?;
+        }
         id
     } else {
         require_write(
@@ -134,7 +141,7 @@ pub fn save(
             "Could not create this crate.",
         )?;
         let id = transaction.last_insert_rowid();
-        for (position, album_id) in (0i64..).zip(&settings.album_ids) {
+        for (position, album_id) in (0i64..).zip(settings.album_ids.iter().flatten()) {
             insert_album(&transaction, id, album_id, position)?;
         }
         id
@@ -142,6 +149,38 @@ pub fn save(
     let updated = read_crate(&transaction, id)?;
     transaction.commit().map_err(|error| error.to_string())?;
     Ok(updated)
+}
+
+fn edit_selection(
+    connection: &Connection,
+    id: i64,
+    current: &[String],
+    selected: &[String],
+) -> Result<()> {
+    let retained: HashSet<_> = selected.iter().map(String::as_str).collect();
+    if retained.len() != selected.len() {
+        return Err("An album can only be added once per crate.".into());
+    }
+    for album_id in current
+        .iter()
+        .filter(|album_id| !retained.contains(album_id.as_str()))
+    {
+        require_write(
+            connection.execute(
+                "DELETE FROM crate_albums WHERE crate_id = ?1 AND album_id = ?2",
+                params![id, album_id],
+            ),
+            "Could not remove an album from this crate.",
+        )?;
+    }
+    let existing: HashSet<_> = current.iter().map(String::as_str).collect();
+    let next = next_position(connection, id).map_err(|error| error.to_string())?;
+    for (position, album_id) in
+        (next..).zip(selected.iter().filter(|id| !existing.contains(id.as_str())))
+    {
+        insert_album(connection, id, album_id, position)?;
+    }
+    Ok(())
 }
 
 pub fn delete(connection: &Connection, id: i64) -> Result<()> {
@@ -192,16 +231,49 @@ pub fn add_album(connection: &mut Connection, id: i64, album_id: &str) -> Result
     })
 }
 
-pub fn remove_album(connection: &mut Connection, id: i64, album_id: &str) -> Result<Crate> {
-    edit_membership(connection, id, |transaction| {
-        require_write(
-            transaction.execute(
-                "DELETE FROM crate_albums WHERE crate_id = ?1 AND album_id = ?2",
-                params![id, album_id],
-            ),
-            "This album is no longer in the crate.",
+#[derive(Serialize)]
+pub struct RemovedCrateAlbum {
+    updated: Crate,
+    position: i64,
+}
+
+pub fn remove_album(
+    connection: &mut Connection,
+    id: i64,
+    album_id: &str,
+) -> Result<RemovedCrateAlbum> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    let position = transaction
+        .query_row(
+            "DELETE FROM crate_albums WHERE crate_id = ?1 AND album_id = ?2 RETURNING position",
+            params![id, album_id],
+            |row| row.get(0),
         )
+        .optional()
+        .map_err(|error| error.to_string())?
+        .ok_or("This album is no longer in the crate.")?;
+    let updated = read_crate(&transaction, id)?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(RemovedCrateAlbum { updated, position })
+}
+
+pub fn undo_remove_album(
+    connection: &mut Connection,
+    id: i64,
+    album_id: &str,
+    position: i64,
+    expected: &[String],
+) -> Result<()> {
+    edit_membership(connection, id, |transaction| {
+        let current = read_crate(transaction, id)?;
+        if current.album_ids != expected {
+            return Err("The crate’s album order or membership changed after removal.".into());
+        }
+        insert_album(transaction, id, album_id, position)
     })
+    .map(|_| ())
 }
 
 pub fn move_album(
@@ -316,7 +388,8 @@ mod tests {
         CrateSettings {
             name: name.into(),
             description: description.map(str::to_owned),
-            album_ids: Vec::new(),
+            album_ids: None,
+            expected_album_ids: None,
         }
     }
 
@@ -340,16 +413,117 @@ mod tests {
 
         for invalid in ["first", "wish", "missing"] {
             let mut draft = settings("Invalid crate", None);
-            draft.album_ids = vec!["first".into(), invalid.into()];
+            draft.album_ids = Some(vec!["first".into(), invalid.into()]);
             assert!(save(&mut db, None, draft).is_err());
             assert!(list(&db).unwrap().is_empty());
         }
 
         let mut draft = settings("Selected albums", None);
-        draft.album_ids = vec!["second".into(), "first".into()];
+        draft.album_ids = Some(vec!["second".into(), "first".into()]);
         let created = save(&mut db, None, draft).unwrap();
         assert_eq!(created.album_ids, ["second", "first"]);
         assert_eq!(list(&db).unwrap()[0].album_ids, ["second", "first"]);
+    }
+
+    #[test]
+    fn editing_membership_preserves_existing_order_and_rejects_stale_or_invalid_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path();
+        let mut db = database::initialize_database(path, None).unwrap();
+        add_fixture_albums(&db);
+        let mut draft = settings("Original", None);
+        draft.album_ids = Some(vec!["second".into(), "first".into()]);
+        let created = save(&mut db, None, draft).unwrap();
+        let mut invalid = settings("Unsaved", None);
+        invalid.album_ids = Some(vec!["wish".into()]);
+        invalid.expected_album_ids = Some(created.album_ids.clone());
+        assert!(save(&mut db, Some(created.id), invalid).is_err());
+        let unchanged = read_crate(&db, created.id).unwrap();
+        assert_eq!(unchanged.name, "Original");
+        assert_eq!(unchanged.album_ids, created.album_ids);
+
+        let mut edit = settings("Updated", Some("Edited description"));
+        edit.album_ids = Some(vec!["third".into(), "second".into()]);
+        edit.expected_album_ids = Some(created.album_ids.clone());
+        let updated = save(&mut db, Some(created.id), edit).unwrap();
+        assert_eq!(updated.album_ids, ["second", "third"]);
+        let mut stale = settings("Stale", None);
+        stale.album_ids = Some(Vec::new());
+        stale.expected_album_ids = Some(created.album_ids);
+        assert!(save(&mut db, Some(created.id), stale).is_err());
+        drop(db);
+
+        let mut db = database::initialize_database(path, None).unwrap();
+        let saved = read_crate(&db, created.id).unwrap();
+        assert_eq!(saved.name, "Updated");
+        assert_eq!(saved.description.as_deref(), Some("Edited description"));
+        assert_eq!(saved.album_ids, ["second", "third"]);
+        let mut clear = settings("Updated", None);
+        clear.expected_album_ids = Some(saved.album_ids);
+        clear.album_ids = Some(Vec::new());
+        assert!(
+            save(&mut db, Some(created.id), clear)
+                .unwrap()
+                .album_ids
+                .is_empty()
+        );
+        for id in ["first", "second", "third"] {
+            assert!(database::get_album(&db, id).unwrap().is_some());
+        }
+    }
+
+    #[test]
+    fn undo_member_removal_restores_original_position_and_respects_newer_edits() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        add_fixture_albums(&db);
+        let mut draft = settings("Undo", None);
+        draft.album_ids = Some(vec!["first".into(), "second".into(), "third".into()]);
+        let crate_id = save(&mut db, None, draft).unwrap().id;
+        let removal = remove_album(&mut db, crate_id, "second").unwrap();
+        assert_eq!(removal.updated.album_ids, ["first", "third"]);
+        assert!(database::get_album(&db, "second").unwrap().is_some());
+        undo_remove_album(
+            &mut db,
+            crate_id,
+            "second",
+            removal.position,
+            &removal.updated.album_ids,
+        )
+        .unwrap();
+        assert_eq!(
+            read_crate(&db, crate_id).unwrap().album_ids,
+            ["first", "second", "third"]
+        );
+
+        let removal = remove_album(&mut db, crate_id, "second").unwrap();
+        move_album(&mut db, crate_id, "third", MoveDirection::Up).unwrap();
+        assert!(
+            undo_remove_album(
+                &mut db,
+                crate_id,
+                "second",
+                removal.position,
+                &removal.updated.album_ids
+            )
+            .is_err()
+        );
+        assert_eq!(
+            read_crate(&db, crate_id).unwrap().album_ids,
+            ["third", "first"]
+        );
+        delete(&db, crate_id).unwrap();
+        assert!(
+            undo_remove_album(
+                &mut db,
+                crate_id,
+                "second",
+                removal.position,
+                &removal.updated.album_ids
+            )
+            .is_err()
+        );
+        assert!(list(&db).unwrap().is_empty());
     }
 
     #[test]
@@ -384,7 +558,10 @@ mod tests {
             ["second", "first"]
         );
         assert_eq!(
-            remove_album(&mut db, id, "second").unwrap().album_ids,
+            remove_album(&mut db, id, "second")
+                .unwrap()
+                .updated
+                .album_ids,
             ["first"]
         );
         assert_eq!(

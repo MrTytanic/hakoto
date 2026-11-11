@@ -8,10 +8,11 @@ import { AlbumFormatOptions, CollectionSortSelect, CollectionViewToggle } from "
 
 const PAGE_SIZE = 10;
 
-export default function CrateAlbumPicker({ albums, selected, onToggle }: {
+export default function CrateAlbumPicker({ albums, selected, onToggle, allowSelectedOnly = false }: {
   albums: readonly Album[];
   selected: ReadonlySet<string>;
   onToggle: (id: string) => void;
+  allowSelectedOnly?: boolean;
 }) {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<CollectionSort>("collection");
@@ -20,8 +21,11 @@ export default function CrateAlbumPicker({ albums, selected, onToggle }: {
   const [year, setYear] = useState("");
   const [formats, setFormats] = useState<string[]>([]);
   const [limit, setLimit] = useState(PAGE_SIZE);
+  const [selectedOnly, setSelectedOnly] = useState(false);
   const search = useRef<HTMLInputElement>(null);
   const results = useRef<HTMLDivElement>(null);
+  const selectedControl = useRef<HTMLInputElement>(null);
+  const selectedFilter = selectedOnly ? selected : undefined;
 
   const options = useMemo(() => ({
     artists: [...new Set(albums.map(album => album.artist).filter(Boolean))].sort((a, b) => a.localeCompare(b)),
@@ -33,12 +37,13 @@ export default function CrateAlbumPicker({ albums, selected, onToggle }: {
 
   const matches = useMemo(() => {
     const releaseYear = Number(year);
-    const scoped = albums.filter(album => (!artist || album.artist === artist) && (!year || (
+    const scoped = albums.filter(album => (!selectedFilter || selectedFilter.has(album.id)) &&
+      (!artist || album.artist === artist) && (!year || (
       year === "unknown" ? albumReleaseYear(album) == null
         : album.releaseYear === releaseYear || album.originalReleaseYear === releaseYear
     )));
     return getVisibleAlbums(scoped, { query, formats, sort, prioritizePinned: false });
-  }, [albums, artist, year, query, formats, sort]);
+  }, [albums, artist, year, query, formats, sort, selectedFilter]);
 
   function resetFilters() {
     setArtist("");
@@ -99,12 +104,21 @@ export default function CrateAlbumPicker({ albums, selected, onToggle }: {
         }} />
         <button className="album-cancel" type="button" onClick={resetFilters} disabled={!artist && !year && !formats.length}>Clear filters</button>
       </details>}
+      {allowSelectedOnly && <label className="crate-selected-filter">
+        <input type="checkbox" ref={selectedControl} checked={selectedOnly} onChange={event => {
+          setSelectedOnly(event.target.checked);
+          setLimit(PAGE_SIZE);
+        }} />Show selected albums only
+      </label>}
       <p className="crate-picker-count" role="status">
         {!albums.length ? "No albums in your collection yet." : !matches.length ? "No matching albums." : `Showing ${Math.min(limit, matches.length)} of ${matches.length} albums`}
       </p>
       <div ref={results} className={view === "list" ? "album-list" : "album-grid"}>
         {matches.slice(0, limit).map(album => <AlbumCard key={album.id} album={album} view={view}
-          selected={selected.has(album.id)} onClick={() => onToggle(album.id)} />)}
+          selected={selected.has(album.id)} onClick={() => {
+            if (selectedOnly) selectedControl.current?.focus();
+            onToggle(album.id);
+          }} />)}
       </div>
       {limit < matches.length && <button type="button" className="album-cancel crate-picker-more" onClick={loadMore}>Load More</button>}
     </section>

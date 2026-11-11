@@ -150,8 +150,27 @@ fn remove_crate_album(
     state: State<'_, DatabaseState>,
     crate_id: i64,
     album_id: String,
-) -> Result<crates::Crate, String> {
+) -> Result<crates::RemovedCrateAlbum, String> {
     state.with_storage(|storage| crates::remove_album(&mut storage.connection, crate_id, &album_id))
+}
+
+#[tauri::command]
+fn undo_remove_crate_album(
+    state: State<'_, DatabaseState>,
+    crate_id: i64,
+    album_id: String,
+    position: i64,
+    expected_album_ids: Vec<String>,
+) -> Result<(), String> {
+    state.with_storage(|storage| {
+        crates::undo_remove_album(
+            &mut storage.connection,
+            crate_id,
+            &album_id,
+            position,
+            &expected_album_ids,
+        )
+    })
 }
 
 #[tauri::command]
@@ -339,6 +358,7 @@ pub fn run() {
             delete_crate,
             add_crate_album,
             remove_crate_album,
+            undo_remove_crate_album,
             move_crate_album,
             save_album,
             get_album_library,

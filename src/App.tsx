@@ -361,7 +361,7 @@ function App() {
       />
     ),
     Crates: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
-      <Crates profile={profile} albums={ownedAlbums} revision={layoutRevision} />
+      <Crates profile={profile} albums={ownedAlbums} revision={layoutRevision} onUndo={notifyUndo} />
     ),
     Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : <Statistics profile={profile} albums={ownedAlbums} />,
     Settings: (
