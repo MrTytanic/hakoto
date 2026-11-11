@@ -33,6 +33,16 @@ pub fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         ) STRICT;
         CREATE INDEX IF NOT EXISTS shelf_placements_album ON shelf_placements (album_id);
 
+        CREATE TRIGGER IF NOT EXISTS shelf_placement_insert_owned
+        BEFORE INSERT ON shelf_placements
+        WHEN EXISTS (SELECT 1 FROM albums WHERE id = NEW.album_id AND ownership = 'wishlist')
+        BEGIN SELECT RAISE(ABORT, 'Add wishlist albums to your collection before placing them'); END;
+
+        CREATE TRIGGER IF NOT EXISTS shelf_placement_update_owned
+        BEFORE UPDATE OF album_id ON shelf_placements
+        WHEN EXISTS (SELECT 1 FROM albums WHERE id = NEW.album_id AND ownership = 'wishlist')
+        BEGIN SELECT RAISE(ABORT, 'Add wishlist albums to your collection before placing them'); END;
+
         CREATE TRIGGER IF NOT EXISTS shelf_placement_insert_bounds
         BEFORE INSERT ON shelf_placements
         WHEN EXISTS (SELECT 1 FROM shelves WHERE id = NEW.shelf_id
@@ -422,6 +432,7 @@ mod tests {
             original_release_year: None,
             date_acquired: None,
             notes: None,
+            ownership: database::Ownership::Owned,
         };
         database::save_album(connection, directory, album, None).unwrap();
     }

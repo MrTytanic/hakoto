@@ -28,6 +28,7 @@ function AlbumDetails({
   onError,
   onClose
 }: AlbumDetailsProps) {
+  const wishlist = album.ownership === "wishlist";
   const [editing, setEditing] = useState(initialAction === "edit");
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(initialAction === "delete");
   const [isSaving, setIsSaving] = useState(false);
@@ -199,7 +200,8 @@ function AlbumDetails({
               onChange={e => setFormat(e.target.value)}
               disabled={isSaving}
             >
-              {!albumFormats.includes(album.format) && <option value={album.format}>{album.format}</option>}
+              {wishlist && <option value="">Format undecided</option>}
+              {!albumFormats.includes(album.format) && (!wishlist || album.format) && <option value={album.format}>{album.format}</option>}
               {albumFormats.map(item => (
                 <option key={item} value={item}>
                   {item}
@@ -210,7 +212,7 @@ function AlbumDetails({
             {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
             <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
             <p className="album-date-note">Date added: {album.dateAdded ?? "Unknown"}</p>
-            <AlbumReleaseFields value={release} onChange={setRelease} disabled={isSaving} />
+            <AlbumReleaseFields value={release} onChange={setRelease} disabled={isSaving} wishlist={wishlist} />
 
             <ArtworkPicker
               artwork={artwork}
@@ -252,7 +254,7 @@ function AlbumDetails({
               <div className="details-information">
                 <h3>{album.title}</h3>
                 <p>{album.artist}</p>
-                <span>{album.format}</span>
+                <span>{album.format || "Format undecided"}</span>
 
                 {album.condition && <span>{album.condition}</span>}
                 {album.recordType && <span>{album.recordType}</span>}
@@ -267,7 +269,7 @@ function AlbumDetails({
             {album.notes && <p className="details-notes"><strong>Notes</strong><br />{album.notes}</p>}
 
             <div className="details-actions">
-              <button
+              {!wishlist && <button
                 type="button"
                 onClick={toggleFavorite}
                 disabled={isSaving}
@@ -282,7 +284,7 @@ function AlbumDetails({
                   : album.favorite
                     ? "Unfavorite"
                     : "Favorite"}
-              </button>
+              </button>}
 
               <button
                 type="button"
@@ -326,8 +328,7 @@ function AlbumDetails({
 
             <p id="delete-confirmation-description">
               Are you sure you want to delete{" "}
-              <strong>{album.title}</strong> from your collection?
-              This action cannot be undone.
+              <strong>{album.title}</strong> from your {wishlist ? "wishlist" : "collection"}?
             </p>
 
             <div className="delete-confirmation-actions">

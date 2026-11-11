@@ -25,10 +25,11 @@ export function albumReleaseMetadata(draft: AlbumReleaseDraft) {
   };
 }
 
-export function AlbumReleaseFields({ value, onChange, disabled }: {
+export function AlbumReleaseFields({ value, onChange, disabled, wishlist = false }: {
   value: AlbumReleaseDraft;
   onChange: (value: AlbumReleaseDraft) => void;
   disabled: boolean;
+  wishlist?: boolean;
 }) {
   const id = useId();
   const years = [
@@ -48,12 +49,12 @@ export function AlbumReleaseFields({ value, onChange, disabled }: {
           </div>
         ))}
       </div>
-      <div className="album-form-field">
+      {!wishlist && <div className="album-form-field">
         <label htmlFor={id + "acquired"}>Date acquired</label>
         <input id={id + "acquired"} type="date" min="0001-01-01" max="9999-12-31"
           value={value.dateAcquired} disabled={disabled}
           onChange={event => onChange({ ...value, dateAcquired: event.target.value })} />
-      </div>
+      </div>}
       <div className="album-form-field">
         <label htmlFor={id + "notes"}>Notes</label>
         <textarea id={id + "notes"} rows={3} maxLength={NOTES_LIMIT} value={value.notes}

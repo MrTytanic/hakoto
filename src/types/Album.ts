@@ -3,6 +3,7 @@ export type Album = {
   title: string;
   artist: string;
   format: string;
+  ownership: "owned" | "wishlist";
   releaseYear: number | null;
   originalReleaseYear?: number | null;
   artwork: string | null;

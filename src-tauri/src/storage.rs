@@ -426,6 +426,7 @@ mod tests {
             original_release_year: None,
             date_acquired: None,
             notes: None,
+            ownership: database::Ownership::Owned,
         }
     }
 

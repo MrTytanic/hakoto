@@ -5,7 +5,10 @@ use std::{
     path::Path,
 };
 
-use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior, params};
+use rusqlite::{
+    Connection, OpenFlags, OptionalExtension, TransactionBehavior, params,
+    types::{FromSql, FromSqlError, FromSqlResult, ValueRef},
+};
 
 use crate::{artwork, profile, shelves};
 
@@ -13,8 +16,8 @@ const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 pub const DATABASE_NAME: &str = "hakoto.db";
 pub(crate) const INSERT_ALBUM: &str = "INSERT INTO albums
     (id, title, artist, format, release_year, artwork, favorite, pinned, date_added, condition,
-     record_type, disc_size, original_release_year, date_acquired, notes)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)";
+     record_type, disc_size, original_release_year, date_acquired, notes, ownership)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)";
 
 const LEGACY_YEAR: &str = "CASE WHEN length(trim(release_year)) BETWEEN 1 AND 4
     AND trim(release_year) NOT GLOB '*[^0-9]*'
@@ -92,6 +95,12 @@ pub(crate) fn migrate_album_columns(connection: &Connection) -> rusqlite::Result
              ALTER TABLE albums ADD COLUMN notes TEXT;"
         ))?;
     }
+    if !has_album_column(connection, "ownership")? {
+        connection.execute_batch(
+            "ALTER TABLE albums ADD COLUMN ownership TEXT NOT NULL DEFAULT 'owned'
+                 CHECK (ownership IN ('owned', 'wishlist'));",
+        )?;
+    }
     crate::undo::initialize(connection)?;
     Ok(())
 }
@@ -150,6 +159,35 @@ pub struct Album {
     pub original_release_year: Option<u16>,
     pub date_acquired: Option<String>,
     pub notes: Option<String>,
+    #[serde(default)]
+    pub ownership: Ownership,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Ownership {
+    #[default]
+    Owned,
+    Wishlist,
+}
+
+impl Ownership {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::Owned => "owned",
+            Self::Wishlist => "wishlist",
+        }
+    }
+}
+
+impl FromSql for Ownership {
+    fn column_result(value: ValueRef<'_>) -> FromSqlResult<Self> {
+        match value.as_str()? {
+            "owned" => Ok(Self::Owned),
+            "wishlist" => Ok(Self::Wishlist),
+            _ => Err(FromSqlError::Other("Invalid album ownership".into())),
+        }
+    }
 }
 
 #[derive(serde::Deserialize)]
@@ -176,8 +214,13 @@ pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
     } else {
         "NULL, NULL, NULL"
     };
+    let ownership = if has_album_column(connection, "ownership")? {
+        "ownership"
+    } else {
+        "'owned'"
+    };
     let mut statement = connection.prepare(&format!(
-        "SELECT id, title, artist, format, {year}, artwork, favorite, {metadata}, {extra}
+        "SELECT id, title, artist, format, {year}, artwork, favorite, {metadata}, {extra}, {ownership}
          FROM albums ORDER BY rowid ASC"
     ))?;
 
@@ -205,6 +248,7 @@ fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
         original_release_year: row.get(12)?,
         date_acquired: row.get(13)?,
         notes: row.get(14)?,
+        ownership: row.get(15)?,
     })
 }
 
@@ -213,7 +257,7 @@ pub fn get_album(connection: &Connection, id: &str) -> rusqlite::Result<Option<A
         .query_row(
             "SELECT id, title, artist, format, release_year, artwork, favorite,
                 pinned, date_added, condition, record_type, disc_size,
-                original_release_year, date_acquired, notes
+                original_release_year, date_acquired, notes, ownership
          FROM albums WHERE id = ?1",
             [id],
             |row| {
@@ -250,6 +294,34 @@ pub fn update_album(
     store_album(connection, app_dir, album, change, false)
 }
 
+pub fn acquire_album(
+    connection: &mut Connection,
+    id: &str,
+    format: &str,
+    date_acquired: &str,
+) -> Result<Album, String> {
+    let format = crate::metadata::validate_format(format, Ownership::Owned)?;
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(|error| error.to_string())?;
+    crate::metadata::validate_acquisition_date(&transaction, date_acquired)?;
+    let updated = transaction
+        .execute(
+            "UPDATE albums SET ownership = 'owned', format = ?2, date_acquired = ?3
+             WHERE id = ?1 AND ownership = 'wishlist'",
+            params![id, format, date_acquired],
+        )
+        .map_err(|error| error.to_string())?;
+    if updated != 1 {
+        return Err("Could not acquire this album. It may no longer be on your wishlist.".into());
+    }
+    let album = get_album(&transaction, id)
+        .map_err(|error| error.to_string())?
+        .ok_or("Album no longer exists.")?;
+    transaction.commit().map_err(|error| error.to_string())?;
+    Ok(album)
+}
+
 fn store_album(
     connection: &mut Connection,
     app_dir: &Path,
@@ -270,6 +342,12 @@ fn store_album(
                 .ok_or("Album no longer exists.")?,
         )
     };
+    if existing
+        .as_ref()
+        .is_some_and(|old| old.ownership != album.ownership)
+    {
+        return Err("Album ownership has changed. Reopen the album before editing it.".into());
+    }
     crate::metadata::validate(&transaction, &mut album, existing.as_ref())?;
     let previous = existing.as_ref().and_then(|old| old.artwork.clone());
     album.date_added = if let Some(existing) = existing {
@@ -298,7 +376,8 @@ fn store_album(
         "UPDATE albums SET title = ?2, artist = ?3, format = ?4, release_year = ?5,
                            artwork = ?6, favorite = ?7, pinned = ?8, date_added = ?9,
                            condition = ?10, record_type = ?11, disc_size = ?12,
-                           original_release_year = ?13, date_acquired = ?14, notes = ?15 WHERE id = ?1"
+                           original_release_year = ?13, date_acquired = ?14, notes = ?15,
+                           ownership = ?16 WHERE id = ?1"
     };
     let result = write_album(&transaction, sql, &album).and_then(|rows| {
         if rows == 1 {
@@ -358,6 +437,7 @@ pub(crate) fn write_album(
             album.original_release_year,
             album.date_acquired,
             album.notes,
+            album.ownership.as_str(),
         ],
     )
 }
@@ -492,6 +572,7 @@ mod tests {
             original_release_year: None,
             date_acquired: None,
             notes: None,
+            ownership: Ownership::Owned,
         }
     }
 
@@ -988,10 +1069,14 @@ mod tests {
              VALUES ('placed', 'Title', 'Artist', 'CD', '0042', '12345678901234567890123456789012.webp', 1, 1, '2020-01-02'),
                     ('unknown', 'Title', 'Artist', 'CD', 'unknown', NULL, 0, 0, NULL);",
         ).unwrap();
-        shelves::migrate(&mut db).unwrap();
         crate::undo::initialize(&db).unwrap();
         db.execute_batch(
-            "INSERT INTO shelves (id, name, rows, columns, orientation) VALUES (1, 'Shelf', 1, 1, 'vertical');
+            "PRAGMA foreign_keys = ON;
+             CREATE TABLE shelves (id INTEGER PRIMARY KEY, name TEXT, rows INTEGER, columns INTEGER, orientation TEXT);
+             CREATE TABLE shelf_placements (shelf_id INTEGER REFERENCES shelves(id), row_index INTEGER,
+                 column_index INTEGER, album_id TEXT REFERENCES albums(id) ON DELETE CASCADE,
+                 PRIMARY KEY (shelf_id, row_index, column_index));
+             INSERT INTO shelves (id, name, rows, columns, orientation) VALUES (1, 'Shelf', 1, 1, 'vertical');
              INSERT INTO shelf_placements VALUES (1, 0, 0, 'placed');",
         ).unwrap();
         let archived = serde_json::json!({
@@ -1011,6 +1096,7 @@ mod tests {
         let mut db = initialize_database(&directory.0, None).unwrap();
         let placed = get_album(&db, "placed").unwrap().unwrap();
         assert_eq!(placed.release_year, Some(42));
+        assert_eq!(placed.ownership, Ownership::Owned);
         assert!(placed.favorite && placed.pinned);
         assert_eq!(
             placed.artwork.as_deref(),
@@ -1028,7 +1114,93 @@ mod tests {
         );
         let restored = crate::undo::restore(&mut db, &directory.0, "legacy").unwrap();
         assert_eq!(restored.release_year, Some(1990));
+        assert_eq!(restored.ownership, Ownership::Owned);
         assert!(restored.notes.is_none());
+    }
+
+    #[test]
+    fn wishlist_acquisition_preserves_the_album_and_its_artwork_in_place() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let mut candidate = album("wish");
+        candidate.ownership = Ownership::Wishlist;
+        candidate.format.clear();
+        candidate.notes = Some("First line\nSecond line".into());
+        candidate.original_release_year = Some(1980);
+        let wishlist = save_album(&mut db, path, candidate, Some(COVER.to_vec())).unwrap();
+        let name = wishlist.artwork.as_deref().unwrap();
+
+        let token = crate::undo::delete(&mut db, "wish").unwrap();
+        assert_eq!(
+            crate::undo::restore(&mut db, path, &token)
+                .unwrap()
+                .ownership,
+            Ownership::Wishlist
+        );
+        drop(db);
+
+        let mut db = initialize_database(path, None).unwrap();
+        assert_eq!(
+            get_album(&db, "wish").unwrap().unwrap().ownership,
+            Ownership::Wishlist
+        );
+        let acquired = acquire_album(&mut db, "wish", "Digital (FLAC)", "2024-02-29").unwrap();
+        assert_eq!(acquired.ownership, Ownership::Owned);
+        assert_eq!(acquired.id, wishlist.id);
+        assert_eq!(acquired.artwork.as_deref(), Some(name));
+        assert_eq!(artwork::read(path, name).as_deref(), Some(COVER));
+        assert_eq!(acquired.date_added, wishlist.date_added);
+        assert_eq!(acquired.date_acquired.as_deref(), Some("2024-02-29"));
+        assert_eq!(acquired.format, "Digital (FLAC)");
+        assert_eq!(acquired.notes, wishlist.notes);
+        assert_eq!(acquired.release_year, wishlist.release_year);
+        assert_eq!(
+            acquired.original_release_year,
+            wishlist.original_release_year
+        );
+        assert!(acquire_album(&mut db, "wish", "CD", "2025-01-01").is_err());
+        assert!(update_album(&mut db, path, wishlist, None).is_err());
+        drop(db);
+
+        let db = initialize_database(path, None).unwrap();
+        let albums = get_albums(&db).unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].ownership, Ownership::Owned);
+        assert_eq!(albums[0].date_acquired.as_deref(), Some("2024-02-29"));
+    }
+
+    #[test]
+    fn failed_acquisition_leaves_wishlist_albums_unchanged_and_off_shelves() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let mut candidate = album("wish");
+        candidate.ownership = Ownership::Wishlist;
+        save_album(&mut db, path, candidate, None).unwrap();
+        db.execute(
+            "INSERT INTO shelves VALUES (1, 'Shelf', 1, 1, 'vertical')",
+            [],
+        )
+        .unwrap();
+        let placement = "INSERT INTO shelf_placements VALUES (1, 0, 0, 'wish')";
+        assert!(db.execute(placement, []).is_err());
+        assert!(acquire_album(&mut db, "wish", "", "2024-02-29").is_err());
+        assert!(acquire_album(&mut db, "wish", "Vinyl", "2025-02-29").is_err());
+        db.execute_batch(
+            "CREATE TRIGGER fail_acquisition AFTER UPDATE OF ownership ON albums
+             BEGIN SELECT RAISE(ABORT, 'forced acquisition failure'); END;",
+        )
+        .unwrap();
+        assert!(acquire_album(&mut db, "wish", "Vinyl", "2024-02-29").is_err());
+        let unchanged = get_album(&db, "wish").unwrap().unwrap();
+        assert_eq!(unchanged.ownership, Ownership::Wishlist);
+        assert_eq!(unchanged.format, "CD");
+        assert!(unchanged.date_acquired.is_none());
+        assert!(db.execute(placement, []).is_err());
+        db.execute_batch("DROP TRIGGER fail_acquisition;").unwrap();
+        acquire_album(&mut db, "wish", "Vinyl", "2024-02-29").unwrap();
+        assert_eq!(db.execute(placement, []).unwrap(), 1);
     }
 
     #[test]

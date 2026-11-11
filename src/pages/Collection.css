@@ -435,6 +435,16 @@
   font-size: calc(20px * var(--text-scale));
 }
 
+.album-acquire-dialog {
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  margin: auto;
+  color: var(--text);
+}
+
+.album-acquire-dialog::backdrop { background: var(--overlay); }
+.album-acquire-error { color: var(--danger); }
+
 .album-modal-header button {
   display: flex;
   padding: 5px;

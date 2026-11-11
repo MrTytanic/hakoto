@@ -56,6 +56,18 @@ fn update_album(
 }
 
 #[tauri::command]
+fn acquire_album(
+    state: State<'_, DatabaseState>,
+    id: String,
+    format: String,
+    date_acquired: String,
+) -> Result<database::Album, String> {
+    state.with_storage(|storage| {
+        database::acquire_album(&mut storage.connection, &id, &format, &date_acquired)
+    })
+}
+
+#[tauri::command]
 fn get_deleted_albums(
     state: State<'_, DatabaseState>,
 ) -> Result<Vec<undo::PendingDeletion>, String> {
@@ -275,6 +287,7 @@ pub fn run() {
             save_album,
             get_albums,
             update_album,
+            acquire_album,
             delete_album,
             delete_album_recoverable,
             get_deleted_albums,

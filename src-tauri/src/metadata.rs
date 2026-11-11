@@ -1,4 +1,4 @@
-use crate::database::Album;
+use crate::database::{Album, Ownership};
 use rusqlite::Connection;
 
 const FORMATS: &[&str] = &[
@@ -24,6 +24,30 @@ const FORMATS: &[&str] = &[
     "Digital (AAC)",
     "Digital (Other)",
 ];
+
+pub fn validate_format(format: &str, ownership: Ownership) -> Result<&str, String> {
+    let format = format.trim();
+    if FORMATS.contains(&format) || (ownership == Ownership::Wishlist && format.is_empty()) {
+        Ok(format)
+    } else {
+        Err("Choose a supported album format.".into())
+    }
+}
+
+pub fn validate_acquisition_date(connection: &Connection, date: &str) -> Result<(), String> {
+    let valid = date.len() == 10
+        && !date.starts_with("0000")
+        && connection
+            .query_row("SELECT date(?1, '+0 days') IS ?1", [date], |row| {
+                row.get::<_, bool>(0)
+            })
+            .map_err(|error| error.to_string())?;
+    if valid {
+        Ok(())
+    } else {
+        Err("Enter a valid acquisition date (YYYY-MM-DD).".into())
+    }
+}
 
 fn text(value: &str, limit: usize, label: &str) -> Result<(), String> {
     if value.encode_utf16().take(limit + 1).count() > limit
@@ -77,10 +101,7 @@ pub fn validate(
         album.artist = album.artist.trim().to_owned();
     }
     if previous.is_none_or(|old| old.format != album.format) {
-        if !FORMATS.contains(&album.format.trim()) {
-            return Err("Choose a supported album format.".into());
-        }
-        album.format = album.format.trim().to_owned();
+        album.format = validate_format(&album.format, album.ownership)?.to_owned();
     }
     for (label, year) in [
         ("Edition release year", album.release_year),
@@ -96,18 +117,10 @@ pub fn validate(
         album.date_acquired = None;
     }
     if let Some(date) = &album.date_acquired {
-        let valid = date.len() == 10
-            && !date.starts_with("0000")
-            && connection
-                .query_row("SELECT date(?1, '+0 days') IS ?1", [date], |row| {
-                    row.get::<_, bool>(0)
-                })
-                .map_err(|error| error.to_string())?;
-        if !valid {
-            return Err(
-                "Date acquired must be a valid calendar date (YYYY-MM-DD), or blank.".into(),
-            );
+        if album.ownership == Ownership::Wishlist {
+            return Err("Add the album to your collection to record its acquisition date.".into());
         }
+        validate_acquisition_date(connection, date)?;
     }
     if let Some(notes) = &album.notes {
         let notes = notes.replace("\r\n", "\n").replace('\r', "\n");

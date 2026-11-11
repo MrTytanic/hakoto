@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Profile, ProfileLoadStatus } from "./types/Profile";
 import { encodeArtwork, type ArtworkChange } from "./artwork";
@@ -12,7 +12,6 @@ import Toast from "./components/toast/Toast";
 import Collection, { CollectionLoadError, type AlbumLoadStatus } from "./pages/Collection";
 import Shelves from "./pages/Shelves";
 import Favorites from "./pages/Favorites";
-import Wishlist from "./pages/Wishlist";
 import Lists from "./pages/Lists";
 import Statistics from "./pages/Statistics";
 import Settings from "./pages/Settings";
@@ -68,6 +67,8 @@ function App() {
   const savingPicture = useRef(false);
 
   const [albums, setAlbums] = useState<Album[]>([]);
+  const ownedAlbums = useMemo(() => albums.filter(album => album.ownership !== "wishlist"), [albums]);
+  const wishlistAlbums = useMemo(() => albums.filter(album => album.ownership === "wishlist"), [albums]);
   const [albumLoadStatus, setAlbumLoadStatus] = useState<AlbumLoadStatus>("loading");
   const [albumLoadAttempt, setAlbumLoadAttempt] = useState(0);
   const [shelfRevision, setShelfRevision] = useState(0);
@@ -297,11 +298,17 @@ function App() {
     }
   }
 
+  async function acquireAlbum(id: string, format: string, dateAcquired: string) {
+    const acquired = await invoke<Album>("acquire_album", { id, format, dateAcquired });
+    setAlbums(prev => prev.map(album => album.id === id ? acquired : album));
+    notify(`"${acquired.title}" added to your collection.`);
+  }
+
   const pages: Record<string, React.ReactNode> = {
     Collection: (
       <Collection
         profile={profile}
-        albums={albums}
+        albums={ownedAlbums}
         alphabeticalDividers={alphabeticalDividers}
         loadStatus={albumLoadStatus}
         onRetry={retryAlbums}
@@ -317,7 +324,7 @@ function App() {
         shelfRevision={shelfRevision}
         onUndo={notifyUndo}
         profile={profile}
-        albums={albums}
+        albums={ownedAlbums}
         alphabeticalDividers={alphabeticalDividers}
         loadStatus={albumLoadStatus}
         onRetry={retryAlbums}
@@ -331,16 +338,29 @@ function App() {
     Favorites: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
       <Favorites
         profile={profile}
-        albums={albums}
+        albums={ownedAlbums}
         onUpdate={updateAlbum}
         onDelete={deleteAlbum}
         onNotify={notify}
       />
     ),
 
-    Wishlist: <Wishlist profile={profile} />,
+    Wishlist: (
+      <Collection
+        profile={profile}
+        albums={wishlistAlbums}
+        alphabeticalDividers={alphabeticalDividers}
+        loadStatus={albumLoadStatus}
+        onRetry={retryAlbums}
+        onAdd={addAlbum}
+        onUpdate={updateAlbum}
+        onDelete={deleteAlbum}
+        onNotify={notify}
+        onAcquire={acquireAlbum}
+      />
+    ),
     Lists: <Lists profile={profile} />,
-    Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : <Statistics profile={profile} albums={albums} />,
+    Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : <Statistics profile={profile} albums={ownedAlbums} />,
     Settings: (
       <Settings
         profile={profile}
@@ -371,7 +391,7 @@ function App() {
       />
 
       <main key={activePage} className="main-content page-enter">
-        {activePage !== "Collection" && activePage !== "Shelf Mode" && albumLoadStatus === "loading" ? (
+        {activePage !== "Collection" && activePage !== "Wishlist" && activePage !== "Shelf Mode" && albumLoadStatus === "loading" ? (
           <div role="status" aria-live="polite">
             Loading your collection...
           </div>
