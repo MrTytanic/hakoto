@@ -28,15 +28,24 @@
   font-size: calc(19px * var(--text-scale));
 }
 
-.statistics-formats {
+.statistics-formats,
+.statistics-artists {
   display: grid;
   gap: 14px;
   margin: 0;
+}
+
+.statistics-formats {
   padding: 0;
   list-style: none;
 }
 
-.statistics-formats li {
+.statistics-artists {
+  padding-inline-start: 1.8em;
+}
+
+.statistics-formats li,
+.statistics-artist {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
