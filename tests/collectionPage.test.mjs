@@ -87,7 +87,7 @@ test("shows loaded albums, with search and sort beside the format popover", () =
   }]);
   assert.match(html, /<label for="collection-search">Search albums<\/label>.*<label for="collection-sort">Sort by<\/label>.*aria-label="Format filters".*popover="auto".*type="checkbox"/s);
   assert.match(html, /<legend>Formats<\/legend>/);
-  assert.match(html, /role="status"[^>]*>1 album/);
+  assert.match(html, /role="status"[^>]*>Showing 1–1 of 1/);
   assert.match(html, /<h3 title="Test Album">Test Album<\/h3>/);
   assert.doesNotMatch(html, /album-skeleton|Try again|Your collection is empty/);
 });
