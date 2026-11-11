@@ -1,11 +1,12 @@
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { Heart } from "lucide-react";
 import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { ArtworkChange } from "../artwork";
 import type { Album } from "../types/Album";
-import { getVisibleAlbums } from "../collectionView";
+import { getVisibleAlbums, paginateAlbums } from "../collectionView";
+import { collectionPageSizePreference } from "../settings";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import "./Collection.css";
@@ -21,7 +22,13 @@ type FavoritesProps = {
 function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [initialAction, setInitialAction] = useState<"edit" | "delete">();
-  const favorites = getVisibleAlbums(albums.filter(album => album.favorite), { query: "", formats: [], sort: "collection" });
+  const favorites = useMemo(() => getVisibleAlbums(albums.filter(album => album.favorite), {
+    query: "", formats: [], sort: "collection"
+  }), [albums]);
+  const [pageSize] = useState(collectionPageSizePreference.read);
+  const [page, setPage] = useState(0);
+  const pagination = useMemo(() => paginateAlbums(favorites, page, Number(pageSize)), [favorites, page, pageSize]);
+  if (page !== pagination.pageIndex) setPage(pagination.pageIndex);
   const selectedAlbum = favorites.find(album => album.id === selectedId);
 
   return (
@@ -45,21 +52,33 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesP
           <p>Favorite albums from your collection to see them here.</p>
         </div>
       ) : (
-        <div className="album-grid">
-          {favorites.map(album => (
-            <AlbumCard
-              key={album.id}
-              album={album}
-              onClick={() => { setInitialAction(undefined); setSelectedId(album.id); }}
-              onAction={async action => {
-                if (action === "edit" || action === "delete") {
-                  setInitialAction(action);
-                  setSelectedId(album.id);
-                } else await onUpdate({ ...album, [action]: !album[action] });
-              }}
-            />
-          ))}
-        </div>
+        <>
+          <nav className="collection-pagination" aria-label="Favorite pages">
+            <span role="status">Showing {pagination.start + 1}–{pagination.end} of {favorites.length} favorites</span>
+            <div className="collection-page-buttons">
+              <button type="button" className="album-cancel" disabled={pagination.pageIndex === 0}
+                onClick={() => setPage(pagination.pageIndex - 1)}>Previous</button>
+              <span>Page {pagination.pageIndex + 1} of {pagination.pageCount}</span>
+              <button type="button" className="album-cancel" disabled={pagination.pageIndex + 1 === pagination.pageCount}
+                onClick={() => setPage(pagination.pageIndex + 1)}>Next</button>
+            </div>
+          </nav>
+          <div className="album-grid">
+            {pagination.albums.map(album => (
+              <AlbumCard
+                key={album.id}
+                album={album}
+                onClick={() => { setInitialAction(undefined); setSelectedId(album.id); }}
+                onAction={async action => {
+                  if (action === "edit" || action === "delete") {
+                    setInitialAction(action);
+                    setSelectedId(album.id);
+                  } else await onUpdate({ ...album, [action]: !album[action] });
+                }}
+              />
+            ))}
+          </div>
+        </>
       )}
 
       {selectedAlbum && (

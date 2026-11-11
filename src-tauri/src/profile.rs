@@ -43,10 +43,14 @@ pub fn get(connection: &Connection) -> rusqlite::Result<Profile> {
 }
 
 pub fn set_display_name(connection: &Connection, name: &str) -> Result<(), Box<dyn Error>> {
-    if name.encode_utf16().count() > 40 {
-        return Err("Display name must be 40 characters or fewer.".into());
+    if name.encode_utf16().count() > 40 || name.chars().any(char::is_control) {
+        return Err(
+            "Display name must be 40 characters or fewer and contain no control characters.".into(),
+        );
     }
-    connection.execute("UPDATE profile SET display_name = ?1 WHERE id = 1", [name])?;
+    if connection.execute("UPDATE profile SET display_name = ?1 WHERE id = 1", [name])? != 1 {
+        return Err("Profile could not be updated.".into());
+    }
     Ok(())
 }
 
@@ -66,7 +70,13 @@ pub fn set_picture(
     };
     let result = transaction
         .execute("UPDATE profile SET picture = ?1 WHERE id = 1", [&picture])
-        .and_then(|_| transaction.commit());
+        .and_then(|rows| {
+            if rows == 1 {
+                transaction.commit()
+            } else {
+                Err(rusqlite::Error::QueryReturnedNoRows)
+            }
+        });
 
     // Recheck the committed reference under the writer lock after either outcome.
     if let Err(error) = clean_orphaned_images(connection, app_dir) {

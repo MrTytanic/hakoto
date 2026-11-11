@@ -183,7 +183,8 @@ export default function Shelves(collection: CollectionProps) {
   }
 
   async function deleteShelf(shelfId: number) {
-    await invoke("delete_shelf", { shelfId });
+    const deleted = await invoke<number>("delete_shelf", { shelfId });
+    if (deleted !== 1) throw new Error("Shelf deletion was not completed. The shelf may have changed.");
     setList(current => current.status === "ready"
       ? { status: "ready", value: current.value.filter(shelf => shelf.id !== shelfId) }
       : current);

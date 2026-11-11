@@ -379,7 +379,8 @@ fn check_space(source: &Connection, directory: &Path, parent: &Path) -> Result<(
 fn verify_references(connection: &Connection, directory: &Path) -> Result<()> {
     let mut statement = connection.prepare(
         "SELECT DISTINCT artwork, 'artwork' FROM albums WHERE artwork IS NOT NULL
-         UNION ALL SELECT picture, 'profile-images' FROM profile WHERE picture IS NOT NULL",
+         UNION ALL SELECT picture, 'profile-images' FROM profile WHERE picture IS NOT NULL
+         UNION ALL SELECT artwork, 'artwork' FROM undo_albums WHERE artwork IS NOT NULL",
     )?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
@@ -568,6 +569,19 @@ mod tests {
         assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
 
         fs::write(&image, TEST_WEBP).unwrap();
+        let token = crate::undo::delete(&mut storage.connection, "one").unwrap();
+        fs::remove_file(&image).unwrap();
+        assert!(
+            storage
+                .relocate(&destination)
+                .unwrap_err()
+                .to_string()
+                .contains("unavailable image")
+        );
+        assert_eq!(crate::undo::pending(&storage.connection).unwrap().len(), 1);
+        assert_eq!(fs::read_dir(&destination).unwrap().count(), 0);
+        fs::write(&image, TEST_WEBP).unwrap();
+        crate::undo::restore(&mut storage.connection, &storage.directory, &token).unwrap();
         fs::write(default.join(LOCATION_FILE), b"do not overwrite").unwrap();
         assert!(storage.relocate(&destination).is_err());
         assert_eq!(

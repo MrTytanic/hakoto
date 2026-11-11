@@ -5,6 +5,7 @@ use tauri_plugin_opener::OpenerExt;
 
 mod artwork;
 mod database;
+mod metadata;
 mod profile;
 mod shelves;
 mod storage;
@@ -222,10 +223,15 @@ fn serve_image(
 ) -> http::Response<Vec<u8>> {
     let name = request.uri().path().strip_prefix('/').unwrap_or_default();
     if request.method() == http::Method::GET
+        && artwork::is_filename(name)
         && let Some(bytes) = read(name)
     {
         return http::Response::builder()
             .header(http::header::CONTENT_TYPE, "image/webp")
+            .header(
+                http::header::CACHE_CONTROL,
+                "private, max-age=31536000, immutable",
+            )
             .header("X-Content-Type-Options", "nosniff")
             .body(bytes)
             .unwrap();
@@ -233,6 +239,7 @@ fn serve_image(
 
     http::Response::builder()
         .status(http::StatusCode::NOT_FOUND)
+        .header(http::header::CACHE_CONTROL, "no-store")
         .body(Vec::new())
         .unwrap()
 }
@@ -326,4 +333,51 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod image_response_tests {
+    use super::*;
+
+    #[test]
+    fn immutable_images_are_cacheable_but_invalid_paths_and_missing_images_are_not() {
+        let name = "00000000000000000000000000000001.webp";
+        let response = serve_image(
+            http::Request::builder()
+                .uri(format!("artwork://localhost/{name}"))
+                .body(Vec::new())
+                .unwrap(),
+            |_| Some(artwork::TEST_WEBP.to_vec()),
+        );
+        assert_eq!(response.status(), http::StatusCode::OK);
+        assert_eq!(
+            response.headers()[http::header::CACHE_CONTROL],
+            "private, max-age=31536000, immutable"
+        );
+        assert_eq!(response.headers()[http::header::CONTENT_TYPE], "image/webp");
+        for path in [
+            "../private.webp",
+            "%2e%2e%2fprivate.webp",
+            "not-an-image",
+            "00000000000000000000000000000001.webp/extra",
+        ] {
+            let response = serve_image(
+                http::Request::builder()
+                    .uri(format!("artwork://localhost/{path}"))
+                    .body(Vec::new())
+                    .unwrap(),
+                |_| panic!("Invalid paths must not reach storage"),
+            );
+            assert_eq!(response.status(), http::StatusCode::NOT_FOUND);
+            assert_eq!(response.headers()[http::header::CACHE_CONTROL], "no-store");
+        }
+        let response = serve_image(
+            http::Request::builder()
+                .uri(format!("artwork://localhost/{name}"))
+                .body(Vec::new())
+                .unwrap(),
+            |_| None,
+        );
+        assert_eq!(response.headers()[http::header::CACHE_CONTROL], "no-store");
+    }
 }
