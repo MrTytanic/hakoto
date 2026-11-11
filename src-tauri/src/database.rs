@@ -12,8 +12,14 @@ use crate::{artwork, profile, shelves};
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 pub const DATABASE_NAME: &str = "hakoto.db";
 pub(crate) const INSERT_ALBUM: &str = "INSERT INTO albums
-    (id, title, artist, format, release_year, artwork, favorite, pinned, date_added, condition, record_type, disc_size)
-    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
+    (id, title, artist, format, release_year, artwork, favorite, pinned, date_added, condition,
+     record_type, disc_size, original_release_year, date_acquired, notes)
+    VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)";
+
+const LEGACY_YEAR: &str = "CASE WHEN length(trim(release_year)) BETWEEN 1 AND 4
+    AND trim(release_year) NOT GLOB '*[^0-9]*'
+    AND CAST(release_year AS INTEGER) BETWEEN 1 AND 9999
+    THEN CAST(release_year AS INTEGER) ELSE NULL END";
 
 pub fn initialize_database(
     app_dir: &Path,
@@ -52,16 +58,16 @@ pub fn initialize_database(
     Ok(connection)
 }
 
-fn has_album_metadata(connection: &Connection) -> rusqlite::Result<bool> {
+fn has_album_column(connection: &Connection, name: &str) -> rusqlite::Result<bool> {
     connection.query_row(
-        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('albums') WHERE name = 'pinned')",
-        [],
+        "SELECT EXISTS (SELECT 1 FROM pragma_table_info('albums') WHERE name = ?1)",
+        [name],
         |row| row.get(0),
     )
 }
 
 pub(crate) fn migrate_album_columns(connection: &Connection) -> rusqlite::Result<()> {
-    if !has_album_metadata(connection)? {
+    if !has_album_column(connection, "pinned")? {
         connection.execute_batch(
             "ALTER TABLE albums ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0;
              ALTER TABLE albums ADD COLUMN date_added TEXT;
@@ -69,6 +75,22 @@ pub(crate) fn migrate_album_columns(connection: &Connection) -> rusqlite::Result
              ALTER TABLE albums ADD COLUMN record_type TEXT;
              ALTER TABLE albums ADD COLUMN disc_size TEXT;",
         )?;
+    }
+    if !has_album_column(connection, "original_release_year")? {
+        // Keep the albums table in place so foreign keys continue to reference the same IDs.
+        connection.execute_batch(&format!(
+            "ALTER TABLE albums ADD COLUMN edition_year_v2 INTEGER
+                 CHECK (typeof(edition_year_v2) = 'null' OR
+                        (typeof(edition_year_v2) = 'integer' AND edition_year_v2 BETWEEN 1 AND 9999));
+             UPDATE albums SET edition_year_v2 = {LEGACY_YEAR};
+             ALTER TABLE albums DROP COLUMN release_year;
+             ALTER TABLE albums RENAME COLUMN edition_year_v2 TO release_year;
+             ALTER TABLE albums ADD COLUMN original_release_year INTEGER
+                 CHECK (typeof(original_release_year) = 'null' OR
+                        (typeof(original_release_year) = 'integer' AND original_release_year BETWEEN 1 AND 9999));
+             ALTER TABLE albums ADD COLUMN date_acquired TEXT;
+             ALTER TABLE albums ADD COLUMN notes TEXT;"
+        ))?;
     }
     crate::undo::initialize(connection)?;
     Ok(())
@@ -114,7 +136,7 @@ pub struct Album {
     pub title: String,
     pub artist: String,
     pub format: String,
-    pub release_year: String,
+    pub release_year: Option<u16>,
     #[serde(skip_deserializing)]
     pub artwork: Option<String>,
     pub favorite: bool,
@@ -125,6 +147,9 @@ pub struct Album {
     pub condition: Option<String>,
     pub record_type: Option<String>,
     pub disc_size: Option<String>,
+    pub original_release_year: Option<u16>,
+    pub date_acquired: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(serde::Deserialize)]
@@ -135,13 +160,24 @@ pub enum ArtworkChange {
 }
 
 pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
-    let metadata = if has_album_metadata(connection)? {
+    let extended = has_album_column(connection, "original_release_year")?;
+    let year = if extended {
+        "release_year"
+    } else {
+        LEGACY_YEAR
+    };
+    let metadata = if extended || has_album_column(connection, "pinned")? {
         "pinned, date_added, condition, record_type, disc_size"
     } else {
         "0, NULL, NULL, NULL, NULL"
     };
+    let extra = if extended {
+        "original_release_year, date_acquired, notes"
+    } else {
+        "NULL, NULL, NULL"
+    };
     let mut statement = connection.prepare(&format!(
-        "SELECT id, title, artist, format, release_year, artwork, favorite, {metadata}
+        "SELECT id, title, artist, format, {year}, artwork, favorite, {metadata}, {extra}
          FROM albums ORDER BY rowid ASC"
     ))?;
 
@@ -166,6 +202,9 @@ fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
         condition: row.get(9)?,
         record_type: row.get(10)?,
         disc_size: row.get(11)?,
+        original_release_year: row.get(12)?,
+        date_acquired: row.get(13)?,
+        notes: row.get(14)?,
     })
 }
 
@@ -173,7 +212,8 @@ pub fn get_album(connection: &Connection, id: &str) -> rusqlite::Result<Option<A
     connection
         .query_row(
             "SELECT id, title, artist, format, release_year, artwork, favorite,
-                pinned, date_added, condition, record_type, disc_size
+                pinned, date_added, condition, record_type, disc_size,
+                original_release_year, date_acquired, notes
          FROM albums WHERE id = ?1",
             [id],
             |row| {
@@ -230,7 +270,7 @@ fn store_album(
                 .ok_or("Album no longer exists.")?,
         )
     };
-    crate::metadata::validate(&mut album, existing.as_ref())?;
+    crate::metadata::validate(&transaction, &mut album, existing.as_ref())?;
     let previous = existing.as_ref().and_then(|old| old.artwork.clone());
     album.date_added = if let Some(existing) = existing {
         existing.date_added
@@ -257,7 +297,8 @@ fn store_album(
     } else {
         "UPDATE albums SET title = ?2, artist = ?3, format = ?4, release_year = ?5,
                            artwork = ?6, favorite = ?7, pinned = ?8, date_added = ?9,
-                           condition = ?10, record_type = ?11, disc_size = ?12 WHERE id = ?1"
+                           condition = ?10, record_type = ?11, disc_size = ?12,
+                           original_release_year = ?13, date_acquired = ?14, notes = ?15 WHERE id = ?1"
     };
     let result = write_album(&transaction, sql, &album).and_then(|rows| {
         if rows == 1 {
@@ -314,6 +355,9 @@ pub(crate) fn write_album(
             album.condition,
             album.record_type,
             album.disc_size,
+            album.original_release_year,
+            album.date_acquired,
+            album.notes,
         ],
     )
 }
@@ -437,7 +481,7 @@ mod tests {
             title: "Title".into(),
             artist: "Artist".into(),
             format: "CD".into(),
-            release_year: "1999".into(),
+            release_year: Some(1999),
             artwork: None,
             favorite: false,
             pinned: false,
@@ -445,6 +489,9 @@ mod tests {
             condition: None,
             record_type: None,
             disc_size: None,
+            original_release_year: None,
+            date_acquired: None,
+            notes: None,
         }
     }
 
@@ -542,6 +589,9 @@ mod tests {
             "artist",
             "format",
             "year",
+            "original-year",
+            "acquired",
+            "notes",
             "condition",
             "record",
             "size",
@@ -554,7 +604,10 @@ mod tests {
                 "long" => invalid.title = "x".repeat(501),
                 "artist" => invalid.artist = "x".repeat(301),
                 "format" => invalid.format = "".into(),
-                "year" => invalid.release_year = "2025-02-30".into(),
+                "year" => invalid.release_year = Some(0),
+                "original-year" => invalid.original_release_year = Some(10000),
+                "acquired" => invalid.date_acquired = Some("2025-02-29".into()),
+                "notes" => invalid.notes = Some("x".repeat(1001)),
                 "condition" => invalid.condition = Some("Unknown".into()),
                 "record" => invalid.record_type = Some("Double".into()),
                 "size" => invalid.disc_size = Some("8".into()),
@@ -577,7 +630,7 @@ mod tests {
         let mut valid = get_album(&db, id).unwrap().unwrap();
         valid.favorite = true;
         valid.condition = Some("Near Mint".into());
-        valid.release_year = "".into();
+        valid.release_year = None;
         let result = update_album(&mut db, path, valid, None).unwrap();
         assert!(result.favorite);
         assert_eq!(result.date_added, saved.date_added);
@@ -588,7 +641,7 @@ mod tests {
             update_album(&mut db, path, serde_json::from_value(forged).unwrap(), None).unwrap();
         assert_eq!(result.date_added, saved.date_added);
         assert_eq!(result.artwork, saved.artwork);
-        assert!(serde_json::from_str::<Album>(r#"{"id":"bad","title":"\ud800","artist":"Artist","format":"CD","releaseYear":"","favorite":false}"#).is_err());
+        assert!(serde_json::from_str::<Album>(r#"{"id":"bad","title":"\ud800","artist":"Artist","format":"CD","releaseYear":null,"favorite":false}"#).is_err());
     }
 
     #[test]
@@ -598,13 +651,12 @@ mod tests {
         let mut db = initialize_database(path, None).unwrap();
         save_album(&mut db, path, album("legacy"), None).unwrap();
         let title = "x".repeat(700);
-        db.execute("UPDATE albums SET title = ?1, release_year = 'unknown', condition = 'Legacy condition',
+        db.execute("UPDATE albums SET title = ?1, condition = 'Legacy condition',
                     record_type = 'Legacy type', date_added = 'invalid date', artwork = '../invalid.webp' WHERE id = 'legacy'", [&title]).unwrap();
         let mut legacy = get_album(&db, "legacy").unwrap().unwrap();
         legacy.favorite = true;
         let saved = update_album(&mut db, path, legacy, None).unwrap();
         assert_eq!(saved.title, title);
-        assert_eq!(saved.release_year, "unknown");
         assert_eq!(saved.condition.as_deref(), Some("Legacy condition"));
         assert_eq!(saved.record_type.as_deref(), Some("Legacy type"));
         assert_eq!(saved.date_added.as_deref(), Some("invalid date"));
@@ -919,7 +971,64 @@ mod tests {
         assert!(!saved.pinned);
         assert!(saved.date_added.is_none());
         assert!(saved.condition.is_none());
-        assert!(saved.release_year.is_empty());
+        assert!(saved.release_year.is_none());
+    }
+
+    #[test]
+    fn migrates_text_years_with_shelf_foreign_keys_and_legacy_undo_records() {
+        let directory = TestDirectory::new();
+        let mut db = Connection::open(directory.0.join(DATABASE_NAME)).unwrap();
+        db.execute_batch(
+            "CREATE TABLE albums (
+                id TEXT PRIMARY KEY, title TEXT NOT NULL, artist TEXT NOT NULL, format TEXT NOT NULL,
+                release_year TEXT NOT NULL, artwork TEXT, favorite INTEGER NOT NULL DEFAULT 0,
+                pinned INTEGER NOT NULL DEFAULT 0, date_added TEXT, condition TEXT, record_type TEXT, disc_size TEXT
+             );
+             INSERT INTO albums (id, title, artist, format, release_year, artwork, favorite, pinned, date_added)
+             VALUES ('placed', 'Title', 'Artist', 'CD', '0042', '12345678901234567890123456789012.webp', 1, 1, '2020-01-02'),
+                    ('unknown', 'Title', 'Artist', 'CD', 'unknown', NULL, 0, 0, NULL);",
+        ).unwrap();
+        shelves::migrate(&mut db).unwrap();
+        crate::undo::initialize(&db).unwrap();
+        db.execute_batch(
+            "INSERT INTO shelves (id, name, rows, columns, orientation) VALUES (1, 'Shelf', 1, 1, 'vertical');
+             INSERT INTO shelf_placements VALUES (1, 0, 0, 'placed');",
+        ).unwrap();
+        let archived = serde_json::json!({
+            "album": {"id": "archived", "title": "Old copy", "artist": "Artist", "format": "CD", "releaseYear": "1990", "favorite": false},
+            "artwork": null, "date_added": null, "placements": []
+        });
+        db.execute(
+            "INSERT INTO undo_albums VALUES ('legacy', ?1, NULL, unixepoch() + 100)",
+            [archived.to_string()],
+        )
+        .unwrap();
+        let transaction = db.transaction().unwrap();
+        migrate_album_columns(&transaction).unwrap();
+        transaction.commit().unwrap();
+        drop(db);
+
+        let mut db = initialize_database(&directory.0, None).unwrap();
+        let placed = get_album(&db, "placed").unwrap().unwrap();
+        assert_eq!(placed.release_year, Some(42));
+        assert!(placed.favorite && placed.pinned);
+        assert_eq!(
+            placed.artwork.as_deref(),
+            Some("12345678901234567890123456789012.webp")
+        );
+        assert_eq!(placed.date_added.as_deref(), Some("2020-01-02"));
+        let unknown = get_album(&db, "unknown").unwrap().unwrap();
+        assert!(unknown.release_year.is_none());
+        assert!(unknown.original_release_year.is_none());
+        assert!(unknown.date_acquired.is_none());
+        assert!(unknown.notes.is_none());
+        assert_eq!(
+            shelves::load_shelf(&mut db, 1).unwrap().placements[0].album_id,
+            "placed"
+        );
+        let restored = crate::undo::restore(&mut db, &directory.0, "legacy").unwrap();
+        assert_eq!(restored.release_year, Some(1990));
+        assert!(restored.notes.is_none());
     }
 
     #[test]
@@ -937,7 +1046,10 @@ mod tests {
         saved.title = "Updated title".into();
         saved.artist = "Updated artist".into();
         saved.format = "Vinyl".into();
-        saved.release_year = "2001".into();
+        saved.release_year = Some(2001);
+        saved.original_release_year = Some(1);
+        saved.date_acquired = Some("2024-02-29".into());
+        saved.notes = Some("First line\r\nSecond line".into());
         saved.favorite = true;
         saved.pinned = true;
         saved.condition = Some("Near Mint".into());
@@ -960,7 +1072,10 @@ mod tests {
         assert_eq!(updated.title, "Updated title");
         assert_eq!(updated.artist, "Updated artist");
         assert_eq!(updated.format, "Vinyl");
-        assert_eq!(updated.release_year, "2001");
+        assert_eq!(updated.release_year, Some(2001));
+        assert_eq!(updated.original_release_year, Some(1));
+        assert_eq!(updated.date_acquired.as_deref(), Some("2024-02-29"));
+        assert_eq!(updated.notes.as_deref(), Some("First line\nSecond line"));
         assert!(updated.favorite);
         assert_eq!(delete_album(&mut db, app_dir, "album").unwrap(), 1);
         drop(db);
@@ -1032,7 +1147,7 @@ mod tests {
         let albums = get_albums(&destination).unwrap();
         assert_eq!(albums.len(), 2);
         assert_eq!(albums[0].id, "cover");
-        assert_eq!(albums[0].release_year, "1999");
+        assert_eq!(albums[0].release_year, Some(1999));
         assert!(albums[0].favorite);
         assert_eq!(
             artwork::read(&current.0, albums[0].artwork.as_deref().unwrap()).as_deref(),
@@ -1081,7 +1196,7 @@ mod tests {
         assert_eq!(artwork::read(app_dir, &original).as_deref(), Some(COVER));
         assert!(albums[1].artwork.is_none());
         assert_eq!(get_album(&db, "plain").unwrap().unwrap().artwork, None);
-        assert_eq!(albums[1].release_year, "1999");
+        assert_eq!(albums[1].release_year, Some(1999));
 
         let mut favorite = album("cover");
         favorite.title = "Renamed album".into();

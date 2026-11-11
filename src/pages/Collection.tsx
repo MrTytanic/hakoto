@@ -8,7 +8,7 @@ import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
 import { getVisibleAlbums, groupVisibleAlbums, paginateAlbums, type CollectionSort } from "../collectionView";
 import { collectionPageSizePreference, collectionViewPreference } from "../settings";
-import AlbumMetadataFields, { albumMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
+import AlbumMetadataFields, { AlbumReleaseFields, albumMetadata, albumReleaseDraft, albumReleaseMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
 import AlbumSearch from "../components/AlbumSearch";
 import AlbumPagination from "../components/AlbumPagination";
 import AlbumCard from "../components/albumcard/AlbumCard";
@@ -118,7 +118,7 @@ function Collection({
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
   const [format, setFormat] = useState("CD");
-  const [releaseYear, setReleaseYear] = useState("");
+  const [release, setRelease] = useState(albumReleaseDraft);
   const [artwork, setArtwork] = useState<File | null>(null);
 
   // Prevents duplicate submissions before React updates isSaving.
@@ -184,7 +184,7 @@ function Collection({
     setTitle("");
     setArtist("");
     setFormat("CD");
-    setReleaseYear("");
+    setRelease(albumReleaseDraft());
     setMetadata({});
     setArtwork(null);
   }
@@ -206,7 +206,7 @@ function Collection({
       title: title.trim(),
       artist: artist.trim(),
       format,
-      releaseYear,
+      ...albumReleaseMetadata(release),
       artwork: null,
       favorite: false,
       ...albumMetadata(metadata, format)
@@ -478,38 +478,25 @@ function Collection({
                   />
                 </div>
 
-                <div className="album-form-row">
-                  <div className="album-form-field">
-                    <label htmlFor="album-format">Format</label>
-                    <select
-                      id="album-format"
-                      value={format}
-                      onChange={e => setFormat(e.target.value)}
-                    >
-                      {albumFormats.map(item => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="album-form-field">
-                    <label htmlFor="album-year">Release Year</label>
-                    <input
-                      id="album-year"
-                      type="number"
-                      min="1"
-                      max="9999"
-                      value={releaseYear}
-                      onChange={e => setReleaseYear(e.target.value)}
-                    />
-                  </div>
+                <div className="album-form-field">
+                  <label htmlFor="album-format">Format</label>
+                  <select
+                    id="album-format"
+                    value={format}
+                    onChange={e => setFormat(e.target.value)}
+                  >
+                    {albumFormats.map(item => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
                 <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
                 <p className="album-date-note">Date added is recorded automatically.</p>
+                <AlbumReleaseFields value={release} onChange={setRelease} disabled={isSaving} />
 
                 <ArtworkPicker
                   artwork={artwork}

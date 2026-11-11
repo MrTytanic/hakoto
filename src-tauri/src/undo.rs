@@ -5,11 +5,30 @@ use std::path::Path;
 
 #[derive(Serialize, Deserialize)]
 struct DeletedAlbum {
+    #[serde(deserialize_with = "read_archived_album")]
     album: database::Album,
     // Album command deserialization ignores these backend-owned fields.
     artwork: Option<String>,
     date_added: Option<String>,
     placements: Vec<shelves::Placement>,
+}
+
+fn read_archived_album<'de, D: serde::Deserializer<'de>>(
+    deserializer: D,
+) -> Result<database::Album, D::Error> {
+    let mut album = serde_json::Value::deserialize(deserializer)?;
+    if let Some(value) = album.get_mut("releaseYear")
+        && let Some(year) = value.as_str()
+    {
+        let year = year.trim_matches(' ');
+        let number = year.parse::<u16>().ok().filter(|number| {
+            year.len() <= 4
+                && year.bytes().all(|byte| byte.is_ascii_digit())
+                && (1..=9999).contains(number)
+        });
+        *value = number.into();
+    }
+    serde_json::from_value(album).map_err(serde::de::Error::custom)
 }
 
 #[derive(Serialize)]

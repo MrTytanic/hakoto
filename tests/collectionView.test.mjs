@@ -7,12 +7,12 @@ function album(id, title, artist, format, releaseYear) {
 }
 
 const albums = Object.freeze([
-  album("z", "Zebra", "The Echoes", "CD", "1990"),
-  album("a", "afterglow", "North", "CD", ""),
-  album("e", "Echoes at Night", "North", "Vinyl (12-inch LP)", "2002"),
-  album("m", "Morning", "The Echoes", "CD", "2018"),
-  album("s", "Silence", "North", "Cassette", "unknown"),
-  album("h", "Horizon", "South", "Vinyl (7-inch / Single)", " 2002 ")
+  album("z", "Zebra", "The Echoes", "CD", 1990),
+  album("a", "afterglow", "North", "CD", null),
+  album("e", "Echoes at Night", "North", "Vinyl (12-inch LP)", 2002),
+  album("m", "Morning", "The Echoes", "CD", 2018),
+  album("s", "Silence", "North", "Cassette", null),
+  Object.freeze({ ...album("h", "Horizon", "South", "Vinyl (7-inch / Single)", null), originalReleaseYear: 2002 })
 ]);
 
 const defaults = { query: "", formats: [], sort: "collection" };
@@ -67,15 +67,15 @@ test("returns empty results for incompatible filters or an empty collection", ()
 });
 
 const dividerAlbums = Object.freeze([
-  album("zebra", "Zebra", "North", "CD", "1990"),
-  album("apple", "Apple", "North", "CD", "2003"),
-  album("afterglow", "afterglow", "North", "CD", "1995"),
-  album("number", "7 Steps", "North", "CD", "1992"),
-  album("accent", "  Élan", "South", "Cassette", "2000"),
-  album("symbol", "#Live", "North", "Vinyl (12-inch LP)", "2004"),
-  album("emoji", "🎵 Mixtape", "North", "CD", "2005"),
-  album("non-latin", "夜", "North", "CD", "2006"),
-  album("blank", " ", "North", "CD", "2007")
+  album("zebra", "Zebra", "North", "CD", 1990),
+  album("apple", "Apple", "North", "CD", 2003),
+  album("afterglow", "afterglow", "North", "CD", 1995),
+  album("number", "7 Steps", "North", "CD", 1992),
+  album("accent", "  Élan", "South", "Cassette", 2000),
+  album("symbol", "#Live", "North", "Vinyl (12-inch LP)", 2004),
+  album("emoji", "🎵 Mixtape", "North", "CD", 2005),
+  album("non-latin", "夜", "North", "CD", 2006),
+  album("blank", " ", "North", "CD", 2007)
 ]);
 
 function dividedIds(options = {}) {

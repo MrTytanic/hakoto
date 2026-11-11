@@ -1,5 +1,6 @@
 export const albumFormats = [
   "CD",
+  "Vinyl",
   "Vinyl (12-inch LP)",
   "Vinyl (10-inch)",
   "Vinyl (7-inch / Single)",
@@ -11,5 +12,12 @@ export const albumFormats = [
   "Reel-to-Reel",
   "Flexi Disc",
   "Shellac (78 RPM)",
-  "Other"
+  "Other",
+  "Other Physical",
+  "Digital (MP3)",
+  "Digital (FLAC)",
+  "Digital (WAV)",
+  "Digital (ALAC)",
+  "Digital (AAC)",
+  "Digital (Other)"
 ];

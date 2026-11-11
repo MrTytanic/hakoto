@@ -1,4 +1,29 @@
 use crate::database::Album;
+use rusqlite::Connection;
+
+const FORMATS: &[&str] = &[
+    "CD",
+    "Vinyl",
+    "Vinyl (12-inch LP)",
+    "Vinyl (10-inch)",
+    "Vinyl (7-inch / Single)",
+    "Cassette",
+    "8-Track Cartridge",
+    "MiniDisc",
+    "SACD",
+    "DVD-Audio",
+    "Reel-to-Reel",
+    "Flexi Disc",
+    "Shellac (78 RPM)",
+    "Other",
+    "Other Physical",
+    "Digital (MP3)",
+    "Digital (FLAC)",
+    "Digital (WAV)",
+    "Digital (ALAC)",
+    "Digital (AAC)",
+    "Digital (Other)",
+];
 
 fn text(value: &str, limit: usize, label: &str) -> Result<(), String> {
     if value.encode_utf16().take(limit + 1).count() > limit
@@ -34,7 +59,11 @@ fn choice(
     Ok(())
 }
 
-pub fn validate(album: &mut Album, previous: Option<&Album>) -> Result<(), String> {
+pub fn validate(
+    connection: &Connection,
+    album: &mut Album,
+    previous: Option<&Album>,
+) -> Result<(), String> {
     // Keep unchanged legacy fields intact, including values accepted by older versions.
     if previous.is_none() {
         text(&album.id, 128, "Album ID")?;
@@ -48,19 +77,52 @@ pub fn validate(album: &mut Album, previous: Option<&Album>) -> Result<(), Strin
         album.artist = album.artist.trim().to_owned();
     }
     if previous.is_none_or(|old| old.format != album.format) {
-        text(album.format.trim(), 100, "Format")?;
+        if !FORMATS.contains(&album.format.trim()) {
+            return Err("Choose a supported album format.".into());
+        }
         album.format = album.format.trim().to_owned();
     }
-    if previous.is_none_or(|old| old.release_year != album.release_year) {
-        let year = album.release_year.trim();
-        if !year.is_empty()
-            && (year.len() != 4
-                || !year.bytes().all(|byte| byte.is_ascii_digit())
-                || year == "0000")
-        {
-            return Err("Release year must be four digits (0001–9999), or blank.".into());
+    for (label, year) in [
+        ("Edition release year", album.release_year),
+        ("Original release year", album.original_release_year),
+    ] {
+        if year.is_some_and(|year| !(1..=9999).contains(&year)) {
+            return Err(format!(
+                "{label} must be an integer from 1 to 9999, or blank."
+            ));
         }
-        album.release_year = year.to_owned();
+    }
+    if album.date_acquired.as_deref() == Some("") {
+        album.date_acquired = None;
+    }
+    if let Some(date) = &album.date_acquired {
+        let valid = date.len() == 10
+            && !date.starts_with("0000")
+            && connection
+                .query_row("SELECT date(?1, '+0 days') IS ?1", [date], |row| {
+                    row.get::<_, bool>(0)
+                })
+                .map_err(|error| error.to_string())?;
+        if !valid {
+            return Err(
+                "Date acquired must be a valid calendar date (YYYY-MM-DD), or blank.".into(),
+            );
+        }
+    }
+    if let Some(notes) = &album.notes {
+        let notes = notes.replace("\r\n", "\n").replace('\r', "\n");
+        if notes.encode_utf16().take(1001).count() > 1000 {
+            return Err("Notes must be 1,000 characters or fewer.".into());
+        }
+        if notes
+            .chars()
+            .any(|character| character.is_control() && !matches!(character, '\n' | '\t'))
+        {
+            return Err(
+                "Notes can contain line breaks and tabs, but no other control characters.".into(),
+            );
+        }
+        album.notes = (!notes.is_empty()).then_some(notes);
     }
     choice(
         &mut album.condition,

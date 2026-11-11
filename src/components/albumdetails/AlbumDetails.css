@@ -144,6 +144,12 @@
   gap: 9px;
 }
 
+.details-notes {
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .details-form label {
   color: var(--text);
   font-size: calc(13px * var(--text-scale));

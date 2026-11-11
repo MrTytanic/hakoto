@@ -18,11 +18,6 @@ export function paginateAlbums(albums: readonly Album[], requestedPage: number, 
   return { pageIndex, pageCount, start, end, albums: albums.slice(start, end) };
 }
 
-function releaseYear(value: string): number | undefined {
-  const year = value.trim();
-  if (/^\d{4}$/.test(year) && year !== "0000") return Number(year);
-}
-
 export function getVisibleAlbums(albums: readonly Album[], { query, formats, sort }: CollectionView): Album[] {
   const search = query.trim().toLowerCase();
   const prioritizePinned = !search;
@@ -46,8 +41,8 @@ function sortMatches(matches: Album[], sort: CollectionSort) {
     case "year-oldest": {
       const missingYear = sort === "year-newest" ? -Infinity : Infinity;
       return matches.sort((a, b) => {
-        const aYear = releaseYear(a.releaseYear) ?? missingYear;
-        const bYear = releaseYear(b.releaseYear) ?? missingYear;
+        const aYear = a.releaseYear ?? a.originalReleaseYear ?? missingYear;
+        const bYear = b.releaseYear ?? b.originalReleaseYear ?? missingYear;
         if (aYear === bYear) return 0;
         return sort === "year-newest" ? bYear - aYear : aYear - bYear;
       });

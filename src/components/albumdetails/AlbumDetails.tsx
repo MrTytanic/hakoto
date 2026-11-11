@@ -6,7 +6,7 @@ import { albumFormats } from "../../constants/albumFormats";
 import { artworkUrl, encodeArtwork, type ArtworkChange } from "../../artwork";
 import { ArtworkImage, ArtworkPicker } from "../Artwork";
 import { findDuplicateAlbum } from "../../duplicateAlbums";
-import AlbumMetadataFields, { albumMetadata } from "../AlbumMetadataFields";
+import AlbumMetadataFields, { AlbumReleaseFields, albumMetadata, albumReleaseDraft, albumReleaseMetadata } from "../AlbumMetadataFields";
 import "./AlbumDetails.css";
 
 type AlbumDetailsProps = {
@@ -38,7 +38,7 @@ function AlbumDetails({
   const [title, setTitle] = useState(album.title);
   const [artist, setArtist] = useState(album.artist);
   const [format, setFormat] = useState(album.format);
-  const [releaseYear, setReleaseYear] = useState(album.releaseYear);
+  const [release, setRelease] = useState(() => albumReleaseDraft(album));
 
   const [metadata, setMetadata] = useState(() => albumMetadata(album, album.format));
 
@@ -50,7 +50,7 @@ function AlbumDetails({
     setTitle(album.title);
     setArtist(album.artist);
     setFormat(album.format);
-    setReleaseYear(album.releaseYear);
+    setRelease(albumReleaseDraft(album));
     setMetadata(albumMetadata(album, album.format));
     setArtwork(undefined);
     setEditing(true);
@@ -87,7 +87,7 @@ function AlbumDetails({
         title: title.trim(),
         artist: artist.trim(),
         format,
-        releaseYear,
+        ...albumReleaseMetadata(release),
         ...albumMetadata(metadata, format)
       }, change);
 
@@ -199,6 +199,7 @@ function AlbumDetails({
               onChange={e => setFormat(e.target.value)}
               disabled={isSaving}
             >
+              {!albumFormats.includes(album.format) && <option value={album.format}>{album.format}</option>}
               {albumFormats.map(item => (
                 <option key={item} value={item}>
                   {item}
@@ -206,20 +207,10 @@ function AlbumDetails({
               ))}
             </select>
 
-            <label htmlFor="edit-year">Release Year</label>
-            <input
-              id="edit-year"
-              type="number"
-              min="1"
-              max="9999"
-              value={releaseYear}
-              onChange={e => setReleaseYear(e.target.value)}
-              disabled={isSaving}
-            />
-
             {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
             <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
             <p className="album-date-note">Date added: {album.dateAdded ?? "Unknown"}</p>
+            <AlbumReleaseFields value={release} onChange={setRelease} disabled={isSaving} />
 
             <ArtworkPicker
               artwork={artwork}
@@ -267,11 +258,13 @@ function AlbumDetails({
                 {album.recordType && <span>{album.recordType}</span>}
                 {album.discSize && <span>{album.discSize}″</span>}
                 {album.dateAdded && <span>Added {album.dateAdded}</span>}
-                {album.releaseYear && (
-                  <span>{album.releaseYear}</span>
-                )}
+                {album.dateAcquired && <span>Acquired {album.dateAcquired}</span>}
+                {album.originalReleaseYear && <span>Original release {album.originalReleaseYear}</span>}
+                {album.releaseYear && <span>Edition release {album.releaseYear}</span>}
               </div>
             </div>
+
+            {album.notes && <p className="details-notes"><strong>Notes</strong><br />{album.notes}</p>}
 
             <div className="details-actions">
               <button
