@@ -35,11 +35,12 @@ test("Favorites bounds mounted cards using the saved collection page size", () =
       id: String(id), title: `Album ${id}`, artist: "Artist", format: "CD",
       releaseYear: "", artwork: null, favorite: true
     })),
-    async onUpdate() {}, async onDelete() {}, onNotify() {}
+    async onUpdate() {}, async onDelete() {}, onNotify() {}, onBrowseCollection() {}
   }));
   assert.equal((html.match(/class="album-card"/g) ?? []).length, 25);
   assert.match(html, /Showing 1–25 of 30 favorites/);
   assert.match(html, /Page 1 of 2/);
+  assert.match(html, /class="collection-page-summary"[^>]*>.*Albums per page.*Showing 1–25 of 30 favorites<\/span><\/div><div class="collection-page-buttons"[^>]*>.*Previous.*Page 1 of 2.*Next/s);
 });
 
 function render(loadStatus, albums = [], alphabeticalDividers = false) {

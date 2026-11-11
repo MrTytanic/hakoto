@@ -19,9 +19,10 @@ type FavoritesProps = {
   onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onNotify: (message: string, type: "error") => void;
+  onBrowseCollection: () => void;
 };
 
-function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesProps) {
+function Favorites({ profile, albums, onUpdate, onDelete, onNotify, onBrowseCollection }: FavoritesProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [initialAction, setInitialAction] = useState<"edit" | "delete">();
   const [query, setQuery] = useState("");
@@ -60,9 +61,10 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesP
 
       {favoriteAlbums.length === 0 ? (
         <div className="collection-empty">
-          <Heart size={42} strokeWidth={1.2} />
+          <Heart size={42} strokeWidth={1.2} aria-hidden="true" />
           <h2>No favorites yet</h2>
-          <p>Favorite albums from your collection to see them here.</p>
+          <p>Choose Favorite from an album’s menu in your collection.</p>
+          <button type="button" onClick={onBrowseCollection}>Browse Collection</button>
         </div>
       ) : favorites.length === 0 ? (
         <div className="collection-empty">

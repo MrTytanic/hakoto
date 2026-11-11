@@ -1,7 +1,7 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, Disc3, Plus, SlidersHorizontal, X } from "lucide-react";
+import { AlertCircle, Bookmark, Disc3, Plus, SlidersHorizontal, X } from "lucide-react";
 import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
@@ -356,13 +356,13 @@ function Collection({
         }} />
       ) : albums.length === 0 ? (
         <div className="collection-empty">
-          <Disc3 size={42} strokeWidth={1.2} />
+          {wishlist ? <Bookmark size={42} strokeWidth={1.2} aria-hidden="true" /> : <Disc3 size={42} strokeWidth={1.2} aria-hidden="true" />}
           <h2>Your {pageTitle.toLowerCase()} is empty</h2>
-          <p>{wishlist ? "Save albums you’d like to add to your collection." : "Start building your music collection by adding your first album."}</p>
+          <p>{wishlist ? "Save albums you’re looking for. You can choose the format later." : "Add an album to start tracking the copies you own."}</p>
 
           <button type="button" onClick={() => setIsModalOpen(true)}>
-            <Plus size={16} />
-            Add Your First Album
+            <Plus size={16} aria-hidden="true" />
+            {wishlist ? "Add to Wishlist" : "Add Your First Album"}
           </button>
         </div>
       ) : visibleAlbums.length === 0 ? (

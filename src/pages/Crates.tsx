@@ -121,7 +121,7 @@ export default function Crates({ profile, albums, revision, onUndo }: {
     <div className="collection-page crates-page">
       <div className="collection-top">
         <ProfileHeader profile={profile} title="Crates" />
-        {!selected && <button ref={newCrateButton} className="collection-add" type="button" disabled={loadStatus !== "ready" || busy}
+        {!selected && crates.length > 0 && <button ref={newCrateButton} className="collection-add" type="button" disabled={loadStatus !== "ready" || busy}
           onClick={() => setDialog({ kind: "create" })}><Plus size={17} aria-hidden="true" />Create Crate</button>
         }
       </div>
@@ -131,7 +131,14 @@ export default function Crates({ profile, albums, revision, onUndo }: {
         <button className="album-cancel" type="button" onClick={() => setAttempt(current => current + 1)}>Try again</button>
       ) : !selected ? (
         crates.length === 0 ? (
-          <div className="collection-empty"><h2>No crates yet</h2><p>Create a crate to organize albums in a custom order.</p></div>
+          <div className="collection-empty">
+            <Archive size={42} strokeWidth={1.2} aria-hidden="true" />
+            <h2>No crates yet</h2>
+            <p>Group albums from your collection in an order you choose.</p>
+            <button ref={newCrateButton} type="button" onClick={() => setDialog({ kind: "create" })}>
+              <Plus size={16} aria-hidden="true" />Create Crate
+            </button>
+          </div>
         ) : (
           <ul ref={crateList} className="crate-list" aria-label="Saved crates">
             {crates.map(crate => <li key={crate.id}>
@@ -156,7 +163,14 @@ export default function Crates({ profile, albums, revision, onUndo }: {
           <h2 id="selected-crate-name" ref={detailHeading} tabIndex={-1}>{selected.name}</h2>
           <p className="crate-count">{albumCount(selected.albumIds.length)}</p>
           {selected.description && <p className="crate-description">{selected.description}</p>}
-          {members.length === 0 ? <p>This crate is empty. Edit it to add albums.</p> : (
+          {members.length === 0 ? (
+            <div className="collection-empty">
+              <Archive size={42} strokeWidth={1.2} aria-hidden="true" />
+              <h2>This crate is empty</h2>
+              <p>Pick albums from your collection to fill this crate.</p>
+              <button type="button" disabled={busy} onClick={() => setDialog({ kind: "edit", crate: selected })}>Add Albums</button>
+            </div>
+          ) : (
             <ol className="crate-albums">
               {members.map((album, index) => (
                 <li key={album.id}>

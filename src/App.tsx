@@ -343,6 +343,7 @@ function App() {
         onUpdate={updateAlbum}
         onDelete={deleteAlbum}
         onNotify={notify}
+        onBrowseCollection={() => setActivePage("Collection")}
       />
     ),
 
