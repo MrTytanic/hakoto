@@ -54,6 +54,7 @@ pub fn initialize_database(
         ",
     )?;
     migrate_album_columns(&transaction)?;
+    crate::crates::migrate(&transaction)?;
     profile::initialize(&transaction)?;
 
     // Commit the table and its imported rows together so a failed import can be retried.

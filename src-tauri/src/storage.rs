@@ -300,6 +300,7 @@ fn open_saved_collection(directory: &Path) -> Result<Connection> {
     let transaction =
         connection.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
     crate::database::migrate_album_columns(&transaction)?;
+    crate::crates::migrate(&transaction)?;
     transaction.commit()?;
     shelves::migrate(&mut connection)?;
     Ok(connection)

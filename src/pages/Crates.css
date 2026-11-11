@@ -1,0 +1,65 @@
+.crates-page .profile-header { margin-bottom: 0; }
+
+.crate-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.crate-toolbar .album-form-field {
+  flex: 1 1 240px;
+  max-width: 480px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+#selected-crate-name, .crate-description, .crate-album-info { overflow-wrap: anywhere; }
+.crate-description { white-space: pre-wrap; }
+.crate-error { color: var(--danger); }
+
+.crate-albums {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.crate-albums li {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.crate-artwork {
+  display: grid;
+  place-items: center;
+  width: 42px;
+  height: 42px;
+  flex: none;
+  overflow: hidden;
+  border-radius: 5px;
+  background: var(--surface-raised);
+  color: var(--text-muted);
+}
+
+.crate-artwork img { width: 100%; height: 100%; object-fit: cover; }
+.crate-album-info { flex: 1 1 160px; min-width: 0; }
+.crate-album-info span { display: block; color: var(--text-muted); }
+.crate-album-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.crate-album-actions button { display: inline-flex; align-items: center; }
+
+.crate-dialog {
+  width: min(480px, calc(100% - 32px));
+  max-height: calc(100% - 32px);
+  margin: auto;
+  color: var(--text);
+}
+
+.crate-dialog::backdrop { background: var(--overlay); }
+.crate-dialog .crate-delete { background: var(--danger-action); color: var(--danger-action-text); }
+.crate-dialog .crate-delete:hover { background: var(--danger-action-hover); }
+.crates-page button:disabled { opacity: .5; cursor: default; }

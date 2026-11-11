@@ -10,7 +10,7 @@ const navigation = [
   { label: "Collection", icon: Library },
   { label: "Shelf Mode", icon: Layers3 },
   { label: "Favorites", icon: Heart },
-  { label: "Lists", icon: ListMusic },
+  { label: "Crates", icon: ListMusic },
   { label: "Wishlist", icon: Bookmark },
   { label: "Statistics", icon: ChartNoAxesColumn }
 ];
