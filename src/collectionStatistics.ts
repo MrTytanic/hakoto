@@ -15,7 +15,7 @@ export function collectionStatistics(albums: readonly Album[]) {
   for (const album of albums) {
     formats.set(album.format, (formats.get(album.format) ?? 0) + 1);
     if (album.favorite) favorites++;
-    const month = recordedMonth(album.dateAdded);
+    const month = recordedMonth(album.dateAcquired) ?? recordedMonth(album.dateAdded);
     if (month === undefined) undated++;
     else months.set(month, (months.get(month) ?? 0) + 1);
   }

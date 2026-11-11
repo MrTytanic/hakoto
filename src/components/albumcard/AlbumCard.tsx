@@ -6,7 +6,7 @@ import { ArtworkImage } from "../Artwork";
 import type { CollectionViewPreference } from "../../settings";
 import "./AlbumCard.css";
 
-type AlbumCardAction = "favorite" | "pinned" | "edit" | "delete";
+type AlbumCardAction = "favorite" | "pinned" | "edit" | "delete" | "acquire";
 
 type AlbumCardProps = {
   album: Album;
@@ -17,6 +17,7 @@ type AlbumCardProps = {
 };
 
 function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: AlbumCardProps) {
+  const wishlist = album.ownership === "wishlist";
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const busy = useRef(false);
@@ -73,14 +74,14 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: A
             lazy
           />
 
-          {album.pinned && (
+          {!wishlist && album.pinned && (
             <Pin className="album-pin-indicator" size={17} fill="currentColor" aria-label="Pinned" />
           )}
         </div>
 
         <h3 title={album.title}>{album.title}</h3>
         <p>{album.artist}</p>
-        <span>{album.format}</span>
+        <span>{album.format || "Format undecided"}</span>
       </button>
       {onAction && (
         <details ref={menu} name="album-actions" className="album-card-actions" onBlur={event => {
@@ -88,8 +89,14 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid" }: A
         }}>
           <summary ref={trigger} aria-label={`Actions for ${album.title}`}><Ellipsis size={18} aria-hidden="true" /></summary>
           <div className="album-card-action-list">
-            <button type="button" onClick={event => void runAction("favorite", event.detail === 0)}>{album.favorite ? "Unfavorite" : "Favorite"}</button>
-            <button type="button" onClick={event => void runAction("pinned", event.detail === 0)}>{album.pinned ? "Unpin" : "Pin"}</button>
+            {wishlist ? (
+              <button type="button" onClick={event => void runAction("acquire", event.detail === 0)}>Add to Collection</button>
+            ) : (
+              <>
+                <button type="button" onClick={event => void runAction("favorite", event.detail === 0)}>{album.favorite ? "Unfavorite" : "Favorite"}</button>
+                <button type="button" onClick={event => void runAction("pinned", event.detail === 0)}>{album.pinned ? "Unpin" : "Pin"}</button>
+              </>
+            )}
             <button type="button" onClick={event => void runAction("edit", event.detail === 0)}>Edit</button>
             <button type="button" onClick={event => void runAction("delete", event.detail === 0)}>Delete</button>
           </div>

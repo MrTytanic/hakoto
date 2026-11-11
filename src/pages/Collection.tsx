@@ -8,11 +8,12 @@ import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
 import { getVisibleAlbums, groupVisibleAlbums, paginateAlbums, type CollectionSort } from "../collectionView";
 import { collectionPageSizePreference, collectionViewPreference } from "../settings";
-import AlbumMetadataFields, { albumMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
+import AlbumMetadataFields, { AlbumReleaseFields, albumMetadata, albumReleaseDraft, albumReleaseMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
 import AlbumSearch from "../components/AlbumSearch";
 import AlbumPagination from "../components/AlbumPagination";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
+import AlbumAcquisitionDialog from "../components/AlbumAcquisitionDialog";
 import { ArtworkPicker } from "../components/Artwork";
 import { encodeArtwork, type ArtworkChange } from "../artwork";
 import type { UndoNotice } from "../components/toast/Toast";
@@ -36,14 +37,15 @@ export type CollectionProps = {
   onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
   onNotify?: (message: string, type: "success" | "error") => void;
+  onAcquire?: (id: string, format: string, dateAcquired: string) => Promise<void>;
 };
 
-export function CollectionLoadError({ onRetry }: { onRetry: () => void }) {
+export function CollectionLoadError({ onRetry, wishlist = false }: { onRetry: () => void; wishlist?: boolean }) {
   return (
     <div className="collection-empty">
       <AlertCircle size={42} strokeWidth={1.2} aria-hidden="true" />
       <div role="alert">
-        <h2>Couldn’t load your collection</h2>
+        <h2>Couldn’t load your {wishlist ? "wishlist" : "collection"}</h2>
         <p>Try loading your saved albums again.</p>
       </div>
       <button type="button" onClick={onRetry}>Try again</button>
@@ -63,8 +65,12 @@ function Collection({
   onAdd,
   onUpdate,
   onDelete,
-  onNotify
+  onNotify,
+  onAcquire
 }: CollectionProps) {
+  const wishlist = Boolean(onAcquire);
+  const pageTitle = wishlist ? "Wishlist" : "Collection";
+  const defaultFormat = wishlist ? "" : "CD";
   const [query, setQuery] = useState("");
   const [view, setView] = useState(collectionViewPreference.read);
   useEffect(() => { collectionViewPreference.write(view); }, [view]);
@@ -114,11 +120,13 @@ function Collection({
   const [albumActionMode, setAlbumActionMode] = useState<"edit" | "delete">();
   const [metadata, setMetadata] = useState<AlbumMetadata>({});
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [acquiring, setAcquiring] = useState<Album | null>(null);
+  const addButton = useRef<HTMLButtonElement>(null);
 
   const [title, setTitle] = useState("");
   const [artist, setArtist] = useState("");
-  const [format, setFormat] = useState("CD");
-  const [releaseYear, setReleaseYear] = useState("");
+  const [format, setFormat] = useState(defaultFormat);
+  const [release, setRelease] = useState(albumReleaseDraft);
   const [artwork, setArtwork] = useState<File | null>(null);
 
   // Prevents duplicate submissions before React updates isSaving.
@@ -183,8 +191,8 @@ function Collection({
   function resetForm() {
     setTitle("");
     setArtist("");
-    setFormat("CD");
-    setReleaseYear("");
+    setFormat(defaultFormat);
+    setRelease(albumReleaseDraft());
     setMetadata({});
     setArtwork(null);
   }
@@ -206,7 +214,8 @@ function Collection({
       title: title.trim(),
       artist: artist.trim(),
       format,
-      releaseYear,
+      ownership: wishlist ? "wishlist" : "owned",
+      ...albumReleaseMetadata(release),
       artwork: null,
       favorite: false,
       ...albumMetadata(metadata, format)
@@ -231,7 +240,7 @@ function Collection({
     resetForm();
     setIsModalOpen(false);
 
-    notify(`"${album.title}" added to your collection.`, "success");
+    notify(`"${album.title}" added to your ${pageTitle.toLowerCase()}.`, "success");
   }
 
   function openAlbum(id: string, action?: "edit" | "delete") {
@@ -244,6 +253,7 @@ function Collection({
       onPointerDown={onAlbumPointerDown ? event => onAlbumPointerDown(event, album) : undefined}
       onAction={async action => {
         if (action === "edit" || action === "delete") openAlbum(album.id, action);
+        else if (action === "acquire") setAcquiring(album);
         else await onUpdate({ ...album, [action]: !album[action] });
       }} />;
   }
@@ -270,8 +280,8 @@ function Collection({
 
             <h1>
               {profile.displayName.trim()
-                ? `${profile.displayName.trim()}'s Collection`
-                : "Your Collection"}
+                ? `${profile.displayName.trim()}'s ${pageTitle}`
+                : `Your ${pageTitle}`}
             </h1>
           </div>
         )}
@@ -279,6 +289,7 @@ function Collection({
         <button
           type="button"
           className="collection-add"
+          ref={addButton}
           disabled={loadStatus !== "ready"}
           onClick={() => setIsModalOpen(true)}
         >
@@ -287,9 +298,10 @@ function Collection({
         </button>
       </div>
 
-      <section className="collection-tools" aria-label="Collection search and filters">
+      <section className="collection-tools" aria-label={`${pageTitle} search and filters`}>
         <div className="collection-primary-tools">
-          <AlbumSearch id="collection-search" query={query} onChange={setQuery} inputRef={searchRef} disabled={controlsDisabled} />
+          <AlbumSearch id="collection-search" label={wishlist ? "Search wishlist" : undefined}
+            query={query} onChange={setQuery} inputRef={searchRef} disabled={controlsDisabled} />
 
           <div className="collection-sort-tools">
             <div className="album-form-field">
@@ -316,13 +328,13 @@ function Collection({
             <div id={filterId} ref={filterPanel} popover="auto" className="collection-filter-panel" inert={controlsDisabled}>
               <fieldset>
                 <legend>Formats</legend>
-                {albumFormats.map(item => (
+                {(wishlist ? ["", ...albumFormats] : albumFormats).map(item => (
                   <label key={item}>
                     <input type="checkbox" checked={formats.includes(item)} onChange={event => {
                       const checked = event.target.checked;
                       setFormats(current => checked ? [...current, item] : current.filter(format => format !== item));
                     }} />
-                    {item}
+                    {item || "Format undecided"}
                   </label>
                 ))}
               </fieldset>
@@ -339,7 +351,7 @@ function Collection({
           <p className="collection-result-count" role="status" tabIndex={-1} ref={statusRef}>
             {loadStatus === "loading" ? "Loading your albums…" : null}
           </p>
-          <div className="collection-view-toggle" role="group" aria-label="Collection view">
+          <div className="collection-view-toggle" role="group" aria-label={`${pageTitle} view`}>
             <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}>
               <Grid2X2 size={17} aria-hidden="true" />
             </button>
@@ -368,15 +380,15 @@ function Collection({
           ))}
         </div>
       ) : loadStatus === "error" ? (
-        <CollectionLoadError onRetry={() => {
+        <CollectionLoadError wishlist={wishlist} onRetry={() => {
           statusRef.current?.focus();
           onRetry();
         }} />
       ) : albums.length === 0 ? (
         <div className="collection-empty">
           <Disc3 size={42} strokeWidth={1.2} />
-          <h2>Your collection is empty</h2>
-          <p>Start building your music collection by adding your first album.</p>
+          <h2>Your {pageTitle.toLowerCase()} is empty</h2>
+          <p>{wishlist ? "Save albums you’d like to add to your collection." : "Start building your music collection by adding your first album."}</p>
 
           <button type="button" onClick={() => setIsModalOpen(true)}>
             <Plus size={16} />
@@ -407,8 +419,15 @@ function Collection({
       ) : renderAlbumGrid(pagination.albums)}
 
       {loadStatus === "ready" && visibleAlbums.length > 0 && (
-        <AlbumPagination label="Collection pages" pagination={pagination} total={visibleAlbums.length} unfilteredTotal={albums.length}
+        <AlbumPagination label={`${pageTitle} pages`} pagination={pagination} total={visibleAlbums.length} unfilteredTotal={albums.length}
           pageSize={pageSize} onSize={setPageSize} onPage={index => setPage({ scope: pageScope, index })} />
+      )}
+
+      {acquiring && onAcquire && (
+        <AlbumAcquisitionDialog album={acquiring} onAcquire={onAcquire} onClose={acquired => {
+          setAcquiring(null);
+          if (acquired) requestAnimationFrame(() => addButton.current?.focus());
+        }} />
       )}
 
       {selectedAlbum && (
@@ -478,38 +497,26 @@ function Collection({
                   />
                 </div>
 
-                <div className="album-form-row">
-                  <div className="album-form-field">
-                    <label htmlFor="album-format">Format</label>
-                    <select
-                      id="album-format"
-                      value={format}
-                      onChange={e => setFormat(e.target.value)}
-                    >
-                      {albumFormats.map(item => (
-                        <option key={item} value={item}>
-                          {item}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-
-                  <div className="album-form-field">
-                    <label htmlFor="album-year">Release Year</label>
-                    <input
-                      id="album-year"
-                      type="number"
-                      min="1"
-                      max="9999"
-                      value={releaseYear}
-                      onChange={e => setReleaseYear(e.target.value)}
-                    />
-                  </div>
+                <div className="album-form-field">
+                  <label htmlFor="album-format">Format</label>
+                  <select
+                    id="album-format"
+                    value={format}
+                    onChange={e => setFormat(e.target.value)}
+                  >
+                    {wishlist && <option value="">Format undecided</option>}
+                    {albumFormats.map(item => (
+                      <option key={item} value={item}>
+                        {item}
+                      </option>
+                    ))}
+                  </select>
                 </div>
 
                 {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
                 <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
                 <p className="album-date-note">Date added is recorded automatically.</p>
+                <AlbumReleaseFields value={release} onChange={setRelease} disabled={isSaving} wishlist={wishlist} />
 
                 <ArtworkPicker
                   artwork={artwork}
@@ -533,7 +540,7 @@ function Collection({
                     className="album-submit"
                     disabled={isSaving}
                   >
-                    {isSaving ? "Saving..." : "Add to Collection"}
+                    {isSaving ? "Saving..." : `Add to ${pageTitle}`}
                   </button>
                 </div>
               </fieldset>

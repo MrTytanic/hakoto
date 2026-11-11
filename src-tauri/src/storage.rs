@@ -415,7 +415,7 @@ mod tests {
             title: "Test album".into(),
             artist: "Test artist".into(),
             format: "CD".into(),
-            release_year: "2000".into(),
+            release_year: Some(2000),
             artwork: None,
             favorite: true,
             pinned: false,
@@ -423,6 +423,10 @@ mod tests {
             condition: None,
             record_type: None,
             disc_size: None,
+            original_release_year: None,
+            date_acquired: None,
+            notes: None,
+            ownership: database::Ownership::Owned,
         }
     }
 

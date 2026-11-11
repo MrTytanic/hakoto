@@ -3,12 +3,75 @@ import type { Album } from "../types/Album";
 
 export type AlbumMetadata = Pick<Album, "condition" | "recordType" | "discSize">;
 
-export function albumMetadata(value: AlbumMetadata, format: string): AlbumMetadata {
-  const vinyl = format.startsWith("Vinyl");
+const NOTES_LIMIT = 1000;
+
+export function albumReleaseDraft(album?: Album) {
+  return {
+    releaseYear: album?.releaseYear?.toString() ?? "",
+    originalReleaseYear: album?.originalReleaseYear?.toString() ?? "",
+    dateAcquired: album?.dateAcquired ?? "",
+    notes: album?.notes ?? ""
+  };
+}
+
+type AlbumReleaseDraft = ReturnType<typeof albumReleaseDraft>;
+
+export function albumReleaseMetadata(draft: AlbumReleaseDraft) {
+  return {
+    releaseYear: draft.releaseYear ? Number(draft.releaseYear) : null,
+    originalReleaseYear: draft.originalReleaseYear ? Number(draft.originalReleaseYear) : null,
+    dateAcquired: draft.dateAcquired || null,
+    notes: draft.notes || null
+  };
+}
+
+export function AlbumReleaseFields({ value, onChange, disabled, wishlist = false }: {
+  value: AlbumReleaseDraft;
+  onChange: (value: AlbumReleaseDraft) => void;
+  disabled: boolean;
+  wishlist?: boolean;
+}) {
+  const id = useId();
+  const years = [
+    { key: "originalReleaseYear", label: "Original release year" },
+    { key: "releaseYear", label: "Edition release year" }
+  ] as const;
+
+  return (
+    <>
+      <div className="album-form-row">
+        {years.map(({ key, label }) => (
+          <div className="album-form-field" key={key}>
+            <label htmlFor={id + key}>{label}</label>
+            <input id={id + key} type="number" min={1} max={9999} step={1}
+              value={value[key]} disabled={disabled}
+              onChange={event => onChange({ ...value, [key]: event.target.value })} />
+          </div>
+        ))}
+      </div>
+      {!wishlist && <div className="album-form-field">
+        <label htmlFor={id + "acquired"}>Date acquired</label>
+        <input id={id + "acquired"} type="date" min="0001-01-01" max="9999-12-31"
+          value={value.dateAcquired} disabled={disabled}
+          onChange={event => onChange({ ...value, dateAcquired: event.target.value })} />
+      </div>}
+      <div className="album-form-field">
+        <label htmlFor={id + "notes"}>Notes</label>
+        <textarea id={id + "notes"} rows={3} maxLength={NOTES_LIMIT} value={value.notes}
+          disabled={disabled} aria-describedby={id + "count"}
+          onChange={event => onChange({ ...value, notes: event.target.value })} />
+        <small className="album-notes-count" id={id + "count"}>{value.notes.length} / 1,000 characters</small>
+      </div>
+    </>
+  );
+}
+
+export function albumMetadata(value: AlbumMetadata, format?: string): AlbumMetadata {
+  const keepVinylDetails = format === undefined || format.startsWith("Vinyl");
   return {
     condition: value.condition || null,
-    recordType: vinyl ? value.recordType || null : null,
-    discSize: vinyl ? value.discSize || null : null
+    recordType: keepVinylDetails ? value.recordType || null : null,
+    discSize: keepVinylDetails ? value.discSize || null : null
   };
 }
 
@@ -33,6 +96,7 @@ export default function AlbumMetadataFields({ format, value, onChange, disabled 
           <select id={id + key} value={value[key] ?? ""} disabled={disabled}
             onChange={event => onChange({ ...value, [key]: event.target.value || null })}>
             <option value="">Not specified</option>
+            {value[key] && !options.some(option => option === value[key]) && <option value={value[key]}>{value[key]}</option>}
             {options.map(option => <option key={option} value={option}>{key === "discSize" ? `${option}″` : option}</option>)}
           </select>
         </div>

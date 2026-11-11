@@ -33,6 +33,16 @@ pub fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         ) STRICT;
         CREATE INDEX IF NOT EXISTS shelf_placements_album ON shelf_placements (album_id);
 
+        CREATE TRIGGER IF NOT EXISTS shelf_placement_insert_owned
+        BEFORE INSERT ON shelf_placements
+        WHEN EXISTS (SELECT 1 FROM albums WHERE id = NEW.album_id AND ownership = 'wishlist')
+        BEGIN SELECT RAISE(ABORT, 'Add wishlist albums to your collection before placing them'); END;
+
+        CREATE TRIGGER IF NOT EXISTS shelf_placement_update_owned
+        BEFORE UPDATE OF album_id ON shelf_placements
+        WHEN EXISTS (SELECT 1 FROM albums WHERE id = NEW.album_id AND ownership = 'wishlist')
+        BEGIN SELECT RAISE(ABORT, 'Add wishlist albums to your collection before placing them'); END;
+
         CREATE TRIGGER IF NOT EXISTS shelf_placement_insert_bounds
         BEFORE INSERT ON shelf_placements
         WHEN EXISTS (SELECT 1 FROM shelves WHERE id = NEW.shelf_id
@@ -155,7 +165,8 @@ pub enum PlacementChange {
 }
 
 const SELECT_SHELVES: &str = "SELECT id, name, rows, columns, orientation,
-    (SELECT count(*) FROM shelf_placements WHERE shelf_id = shelves.id) FROM shelves";
+    (SELECT count(*) FROM shelf_placements JOIN albums ON albums.id = shelf_placements.album_id
+     WHERE shelf_id = shelves.id AND albums.ownership = 'owned') FROM shelves";
 
 fn read_shelf(row: &Row<'_>) -> rusqlite::Result<Shelf> {
     let rows: i64 = row.get(2)?;
@@ -199,7 +210,8 @@ fn get_shelf(connection: &Connection, id: i64) -> Result<Shelf> {
 fn placements(connection: &Connection, id: i64) -> rusqlite::Result<Vec<Placement>> {
     let mut statement = connection.prepare(
         "SELECT row_index, column_index, album_id FROM shelf_placements
-         WHERE shelf_id = ?1 ORDER BY row_index, column_index",
+         JOIN albums ON albums.id = shelf_placements.album_id
+         WHERE shelf_id = ?1 AND albums.ownership = 'owned' ORDER BY row_index, column_index",
     )?;
     statement
         .query_map([id], |row| {
@@ -411,7 +423,7 @@ mod tests {
             title: id.into(),
             artist: "Test artist".into(),
             format: "CD".into(),
-            release_year: "2000".into(),
+            release_year: Some(2000),
             artwork: None,
             favorite: true,
             pinned: false,
@@ -419,6 +431,10 @@ mod tests {
             condition: None,
             record_type: None,
             disc_size: None,
+            original_release_year: None,
+            date_acquired: None,
+            notes: None,
+            ownership: database::Ownership::Owned,
         };
         database::save_album(connection, directory, album, None).unwrap();
     }

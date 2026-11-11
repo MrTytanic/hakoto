@@ -38,9 +38,9 @@ fn save_album(
 }
 
 #[tauri::command]
-fn get_albums(state: State<'_, DatabaseState>) -> Result<Vec<database::Album>, String> {
+fn get_album_library(state: State<'_, DatabaseState>) -> Result<database::AlbumLibrary, String> {
     state.with_storage(|storage| {
-        database::get_albums(&storage.connection).map_err(|error| error.to_string())
+        database::get_album_library(&mut storage.connection).map_err(|error| error.to_string())
     })
 }
 
@@ -52,6 +52,18 @@ fn update_album(
 ) -> Result<database::Album, String> {
     state.with_storage(|storage| {
         database::update_album(&mut storage.connection, &storage.directory, album, artwork)
+    })
+}
+
+#[tauri::command]
+fn acquire_album(
+    state: State<'_, DatabaseState>,
+    id: String,
+    format: String,
+    date_acquired: String,
+) -> Result<database::Album, String> {
+    state.with_storage(|storage| {
+        database::acquire_album(&mut storage.connection, &id, &format, &date_acquired)
     })
 }
 
@@ -273,8 +285,9 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             save_album,
-            get_albums,
+            get_album_library,
             update_album,
+            acquire_album,
             delete_album,
             delete_album_recoverable,
             get_deleted_albums,

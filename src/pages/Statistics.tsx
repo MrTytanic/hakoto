@@ -36,7 +36,7 @@ function Statistics({ profile, albums }: { profile: Profile; albums: Album[] }) 
           </section>
           <section className="settings-card statistics-section" aria-labelledby="growth-statistics">
             <h2 id="growth-statistics">Collection growth</h2>
-            <p>Monthly additions for albums currently in your collection, using their recorded date added. Up to 24 months are shown.</p>
+            <p>Monthly additions use the acquisition date when recorded and otherwise use the date the album was added. Up to 24 months are shown.</p>
             {stats.undated > 0 && <p>{stats.undated} {stats.undated === 1 ? "album has" : "albums have"} no recorded date and {stats.undated === 1 ? "is" : "are"} excluded from the graph.</p>}
             {stats.earlier > 0 && <p>{stats.earlier} dated albums were added before the months shown.</p>}
             {stats.growth.length === 0 ? <p>No recorded dates yet. Newly added albums will appear here.</p> : (

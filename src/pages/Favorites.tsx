@@ -82,7 +82,7 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesP
                   if (action === "edit" || action === "delete") {
                     setInitialAction(action);
                     setSelectedId(album.id);
-                  } else await onUpdate({ ...album, [action]: !album[action] });
+                  } else if (action === "favorite" || action === "pinned") await onUpdate({ ...album, [action]: !album[action] });
                 }}
               />
             ))}
