@@ -86,9 +86,9 @@
 }
 
 .collection-pagination {
-  justify-content: space-between;
+  justify-content: center;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-top: 16px;
   font-size: calc(13px * var(--text-scale));
   color: var(--text-muted);
 }

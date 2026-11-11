@@ -120,11 +120,16 @@ test("pauses dividers in both year sorts so the chronological order stays intact
   }
 });
 
-test("pinned albums bypass search and format filters and precede sorted results and dividers", () => {
+test("pins take priority only when search is empty", () => {
   const pinned = { ...albums[5], pinned: true };
   const input = [...albums.slice(0, 5), pinned];
-  const results = getVisibleAlbums(input, { query: "Echoes", formats: ["CD"], sort: "title-asc" });
-  assert.deepEqual(results.map(album => album.id), ["h", "m", "z"]);
-  assert.deepEqual(groupVisibleAlbums(results, "title-asc").map(group => group.heading), ["Pinned", "M", "Z"]);
-  assert.deepEqual(getVisibleAlbums(input, { ...defaults, query: "no match", sort: "year-newest" }), [pinned]);
+  const results = getVisibleAlbums(input, { query: "", formats: ["CD"], sort: "title-asc" });
+  assert.deepEqual(results.map(album => album.id), ["h", "a", "m", "z"]);
+  assert.deepEqual(groupVisibleAlbums(results, "title-asc").map(group => group.heading), ["Pinned", "A", "M", "Z"]);
+  const searched = getVisibleAlbums(input.map(album => album.id === "z" ? { ...album, pinned: true } : album), {
+    query: "Echoes", formats: ["CD"], sort: "title-asc"
+  });
+  assert.deepEqual(searched.map(album => album.id), ["m", "z"]);
+  assert.deepEqual(groupVisibleAlbums(searched, "title-asc", false).map(group => group.heading), ["M", "Z"]);
+  assert.deepEqual(getVisibleAlbums(input, { ...defaults, query: "no match", sort: "year-newest" }), []);
 });

@@ -1,14 +1,16 @@
 
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { AlertCircle, Disc3, Grid2X2, List, Plus, Search, SlidersHorizontal, X } from "lucide-react";
+import { AlertCircle, Disc3, Grid2X2, List, Plus, SlidersHorizontal, X } from "lucide-react";
 import { ProfileAvatar } from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
 import { getVisibleAlbums, groupVisibleAlbums, paginateAlbums, type CollectionSort } from "../collectionView";
-import { collectionPageSizePreference, collectionPageSizes, collectionViewPreference } from "../settings";
+import { collectionPageSizePreference, collectionViewPreference } from "../settings";
 import AlbumMetadataFields, { albumMetadata, type AlbumMetadata } from "../components/AlbumMetadataFields";
+import AlbumSearch from "../components/AlbumSearch";
+import AlbumPagination from "../components/AlbumPagination";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import { ArtworkPicker } from "../components/Artwork";
@@ -79,9 +81,10 @@ function Collection({
     () => getVisibleAlbums(albums, { query, formats, sort }),
     [albums, query, formats, sort]
   );
+  const prioritizePinned = !query.trim();
   const allGroups = useMemo(
-    () => alphabeticalDividers ? groupVisibleAlbums(visibleAlbums, sort) : null,
-    [alphabeticalDividers, visibleAlbums, sort]
+    () => alphabeticalDividers ? groupVisibleAlbums(visibleAlbums, sort, prioritizePinned) : null,
+    [alphabeticalDividers, visibleAlbums, sort, prioritizePinned]
   );
   const orderedAlbums = useMemo(
     () => allGroups ? allGroups.flatMap(group => group.albums) : visibleAlbums,
@@ -101,8 +104,8 @@ function Collection({
     setPage({ scope: pageScope, index: pagination.pageIndex });
   }
   const albumGroups = useMemo(
-    () => allGroups ? groupVisibleAlbums(pagination.albums, sort) : null,
-    [allGroups, pagination.albums, sort]
+    () => allGroups ? groupVisibleAlbums(pagination.albums, sort, prioritizePinned) : null,
+    [allGroups, pagination.albums, sort, prioritizePinned]
   );
   const dividersPaused = alphabeticalDividers && allGroups === null;
 
@@ -125,9 +128,6 @@ function Collection({
   const duplicate = findDuplicateAlbum(albums, { title, artist, format });
   const controlsDisabled = loadStatus !== "ready" || albums.length === 0;
   const hasFilters = Boolean(query || formats.length || sort !== "collection");
-  const resultCount = visibleAlbums.length === albums.length
-    ? `${albums.length} ${albums.length === 1 ? "album" : "albums"}`
-    : `${visibleAlbums.length} of ${albums.length} albums`;
   const GroupHeading = embedded ? "h3" : "h2";
 
   useEffect(() => {
@@ -289,26 +289,7 @@ function Collection({
 
       <section className="collection-tools" aria-label="Collection search and filters">
         <div className="collection-primary-tools">
-          <div className="album-form-field collection-search">
-            <label htmlFor="collection-search">Search albums</label>
-            <div className="collection-search-input">
-              <Search className="collection-search-icon" size={16} aria-hidden="true" />
-              <input
-                id="collection-search"
-                type="search"
-                ref={searchRef}
-                value={query}
-                disabled={controlsDisabled}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="Title or artist"
-              />
-              {query && !controlsDisabled && (
-                <button type="button" aria-label="Clear search" onClick={clearSearch}>
-                  <X size={16} aria-hidden="true" />
-                </button>
-              )}
-            </div>
-          </div>
+          <AlbumSearch id="collection-search" query={query} onChange={setQuery} inputRef={searchRef} disabled={controlsDisabled} />
 
           <div className="collection-sort-tools">
             <div className="album-form-field">
@@ -356,7 +337,7 @@ function Collection({
 
         <div className="collection-secondary-tools">
           <p className="collection-result-count" role="status" tabIndex={-1} ref={statusRef}>
-            {loadStatus === "loading" ? "Loading your albums…" : loadStatus === "ready" ? resultCount : null}
+            {loadStatus === "loading" ? "Loading your albums…" : null}
           </p>
           <div className="collection-view-toggle" role="group" aria-label="Collection view">
             <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}>
@@ -374,28 +355,6 @@ function Collection({
           </p>
         )}
       </section>
-
-      {loadStatus === "ready" && visibleAlbums.length > 0 && (
-        <nav className="collection-pagination" aria-label="Collection pages">
-          <div className="collection-page-size">
-            <label htmlFor="collection-page-size">Albums per page</label>
-            <select id="collection-page-size" value={pageSize} onChange={event => {
-              const size = collectionPageSizes.find(value => value === event.target.value);
-              if (size) setPageSize(size);
-            }}>
-              {collectionPageSizes.map(size => <option key={size} value={size}>{size}</option>)}
-            </select>
-          </div>
-          <span role="status">Showing {pagination.start + 1}–{pagination.end} of {visibleAlbums.length}</span>
-          <div className="collection-page-buttons">
-            <button type="button" className="album-cancel" disabled={pagination.pageIndex === 0}
-              onClick={() => setPage({ scope: pageScope, index: pagination.pageIndex - 1 })}>Previous</button>
-            <span>Page {pagination.pageIndex + 1} of {pagination.pageCount}</span>
-            <button type="button" className="album-cancel" disabled={pagination.pageIndex + 1 === pagination.pageCount}
-              onClick={() => setPage({ scope: pageScope, index: pagination.pageIndex + 1 })}>Next</button>
-          </div>
-        </nav>
-      )}
 
       {loadStatus === "loading" ? (
         <div className={view === "list" ? "album-list" : "album-grid"} aria-hidden="true">
@@ -446,6 +405,11 @@ function Collection({
           })}
         </div>
       ) : renderAlbumGrid(pagination.albums)}
+
+      {loadStatus === "ready" && visibleAlbums.length > 0 && (
+        <AlbumPagination label="Collection pages" pagination={pagination} total={visibleAlbums.length} unfilteredTotal={albums.length}
+          pageSize={pageSize} onSize={setPageSize} onPage={index => setPage({ scope: pageScope, index })} />
+      )}
 
       {selectedAlbum && (
         <AlbumDetails

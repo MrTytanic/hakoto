@@ -107,7 +107,7 @@ function App() {
   function offerDeletedUndo(token: string, title: string, position?: number) {
     if (deletedUndoTokens.current.has(token)) return;
     deletedUndoTokens.current.add(token);
-    notifyUndo(`"${title}" removed. Undo is available for 30 seconds.`, async () => {
+    notifyUndo(`"${title}" removed.`, async () => {
       const restored = await invoke<Album>("restore_deleted_album", { token });
       setAlbums(prev => {
         const next = [...prev];

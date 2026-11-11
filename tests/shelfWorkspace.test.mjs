@@ -119,12 +119,15 @@ test("uses a native dialog with dimension limits and fills edit fields from the 
   assert.match(create, /<dialog[^>]*aria-labelledby="shelf-dialog-title"/);
   assert.match(create, /<input id="shelf-name"[^>]*maxLength="80" required=""/i);
   for (const id of ["rows", "columns"]) {
-    assert.match(create, new RegExp(`<input id="shelf-${id}"[^>]*min="1" max="50" step="1" required=""`));
+    assert.match(create, new RegExp(`<input id="shelf-${id}"[^>]*min="1" max="10" step="1" required=""`));
   }
   const edit = render(ShelfDialog, { ...callbacks, action: { kind: "edit", shelf: { ...shelf, orientation: "horizontal" } } });
   assert.match(edit, /<h2 id="shelf-dialog-title">Edit Shelf<\/h2>/);
   assert.match(edit, /value="Listening room"/);
   assert.match(edit, /<option value="horizontal" selected="">/);
+  const legacy = render(ShelfDialog, { ...callbacks, action: { kind: "edit", shelf: { ...shelf, rows: 14 } } });
+  assert.match(legacy, /<input id="shelf-rows"[^>]*max="14"[^>]*value="14"/);
+  assert.match(legacy, /<input id="shelf-columns"[^>]*max="10"/);
   const remove = render(ShelfDialog, { ...callbacks, action: { kind: "delete", shelf } });
   assert.match(remove, /aria-describedby="shelf-delete-description"/);
   assert.match(remove, /Delete “Listening room” and its placements\? Your albums will remain in the collection\./);

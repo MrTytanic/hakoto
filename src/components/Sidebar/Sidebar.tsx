@@ -21,12 +21,17 @@ type SidebarProps = {
 };
 
 function Sidebar({ activePage, setActivePage }: SidebarProps) {
-  const [isExpanded, setIsExpanded] = useState(true);
+  const [mode, setMode] = useState<"initial" | "expanded" | "collapsed">("initial");
+  const isExpanded = mode !== "collapsed";
 
-  const toggleSidebar = () => setIsExpanded(prev => !prev);
+  const toggleSidebar = () => setMode(prev => prev === "collapsed" ? "expanded" : "collapsed");
 
   return (
-    <nav className={`sidebar ${isExpanded ? "expanded" : "collapsed"}`} aria-label="Main navigation">
+    <nav
+      className={`sidebar ${isExpanded ? "expanded" : "collapsed"}`}
+      data-reveal-labels={mode === "expanded" ? "" : undefined}
+      aria-label="Main navigation"
+    >
       <div className="sidebar-header">
         {isExpanded && (
           <div className="sidebar-brand">
@@ -56,7 +61,7 @@ function Sidebar({ activePage, setActivePage }: SidebarProps) {
             aria-current={activePage === label ? "page" : undefined}
           >
             <Icon size={20} strokeWidth={1.8} />
-            {isExpanded && <span>{label}</span>}
+            {isExpanded && <span className="sidebar-label">{label}</span>}
           </button>
         ))}
       </div>
@@ -69,7 +74,7 @@ function Sidebar({ activePage, setActivePage }: SidebarProps) {
           aria-current={activePage === "Settings" ? "page" : undefined}
         >
           <Settings size={20} strokeWidth={1.8} />
-          {isExpanded && <span>Settings</span>}
+          {isExpanded && <span className="sidebar-label">Settings</span>}
         </button>
       </div>
     </nav>

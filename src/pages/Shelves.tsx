@@ -130,7 +130,7 @@ export default function Shelves(collection: CollectionProps) {
       } : current);
       const inverse = undoShelfChanges(placements ?? [], result.placements);
       const savedShelfId = selected.id;
-      collection.onUndo?.(result.text + " Undo is available for 30 seconds.", async () => {
+      collection.onUndo?.(result.text, async () => {
         await invoke<ShelfPlacement[]>("update_shelf_placements", {
           shelfId: savedShelfId, changes: inverse, expected: result.placements
         });

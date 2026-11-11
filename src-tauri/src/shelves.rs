@@ -6,7 +6,8 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 
-const MAX_DIMENSION: i64 = 50;
+const MAX_DIMENSION: i64 = 10;
+const MAX_STORED_DIMENSION: i64 = 50;
 const MAX_NAME_LENGTH: usize = 80;
 type Result<T> = std::result::Result<T, String>;
 
@@ -18,8 +19,8 @@ pub fn migrate(connection: &mut Connection) -> rusqlite::Result<()> {
         "CREATE TABLE IF NOT EXISTS shelves (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             name TEXT NOT NULL CHECK (length(trim(name)) BETWEEN 1 AND {MAX_NAME_LENGTH}),
-            rows INTEGER NOT NULL CHECK (rows BETWEEN 1 AND {MAX_DIMENSION}),
-            columns INTEGER NOT NULL CHECK (columns BETWEEN 1 AND {MAX_DIMENSION}),
+            rows INTEGER NOT NULL CHECK (rows BETWEEN 1 AND {MAX_STORED_DIMENSION}),
+            columns INTEGER NOT NULL CHECK (columns BETWEEN 1 AND {MAX_STORED_DIMENSION}),
             orientation TEXT NOT NULL CHECK (orientation IN ('vertical', 'horizontal'))
         ) STRICT;
 
@@ -88,7 +89,7 @@ pub struct ShelfSettings {
 }
 
 impl ShelfSettings {
-    fn validated(mut self) -> Result<Self> {
+    fn validated(mut self, current: Option<&Self>) -> Result<Self> {
         self.name = self.name.trim().to_owned();
         if self.name.is_empty()
             || self.name.chars().any(char::is_control)
@@ -98,11 +99,14 @@ impl ShelfSettings {
                 "Enter a shelf name between 1 and {MAX_NAME_LENGTH} characters."
             ));
         }
-        if !(1..=MAX_DIMENSION).contains(&self.rows) || !(1..=MAX_DIMENSION).contains(&self.columns)
-        {
-            return Err(format!(
-                "Shelf rows and columns must each be between 1 and {MAX_DIMENSION}."
-            ));
+        for (axis, value, previous) in [
+            ("rows", self.rows, current.map(|shelf| shelf.rows)),
+            ("columns", self.columns, current.map(|shelf| shelf.columns)),
+        ] {
+            let max = MAX_DIMENSION.max(previous.unwrap_or(MAX_DIMENSION));
+            if !(1..=max).contains(&value) {
+                return Err(format!("Shelf {axis} must be between 1 and {max}."));
+            }
         }
         Ok(self)
     }
@@ -156,10 +160,10 @@ const SELECT_SHELVES: &str = "SELECT id, name, rows, columns, orientation,
 fn read_shelf(row: &Row<'_>) -> rusqlite::Result<Shelf> {
     let rows: i64 = row.get(2)?;
     let columns: i64 = row.get(3)?;
-    if !(1..=MAX_DIMENSION).contains(&rows) {
+    if !(1..=MAX_STORED_DIMENSION).contains(&rows) {
         return Err(rusqlite::Error::IntegralValueOutOfRange(2, rows));
     }
-    if !(1..=MAX_DIMENSION).contains(&columns) {
+    if !(1..=MAX_STORED_DIMENSION).contains(&columns) {
         return Err(rusqlite::Error::IntegralValueOutOfRange(3, columns));
     }
     Ok(Shelf {
@@ -220,7 +224,7 @@ pub fn load_shelf(connection: &mut Connection, id: i64) -> Result<ShelfLayout> {
 }
 
 pub fn create_shelf(connection: &Connection, settings: ShelfSettings) -> Result<Shelf> {
-    let settings = settings.validated()?;
+    let settings = settings.validated(None)?;
     let inserted = connection
         .execute(
             "INSERT INTO shelves (name, rows, columns, orientation) VALUES (?1, ?2, ?3, ?4)",
@@ -247,10 +251,11 @@ pub fn update_shelf(
     id: i64,
     settings: ShelfSettings,
 ) -> Result<Shelf> {
-    let settings = settings.validated()?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
+    let current = get_shelf(&transaction, id)?;
+    let settings = settings.validated(Some(&current.settings))?;
     let outside = transaction
         .query_row(
             "SELECT row_index, column_index FROM shelf_placements
@@ -578,7 +583,8 @@ mod tests {
             settings(" ", 1, 1),
             settings(&"x".repeat(81), 1, 1),
             settings("Zero", 0, 1),
-            settings("Large", 1, 51),
+            settings("Too many rows", 11, 10),
+            settings("Too many columns", 10, 11),
         ] {
             assert!(create_shelf(&db, invalid).is_err());
         }
@@ -626,6 +632,36 @@ mod tests {
         let smaller = update_shelf(&mut db, shelf.id, settings("Records", 1, 2)).unwrap();
         assert_eq!(smaller.settings.rows, 1);
         assert!(load_shelf(&mut db, shelf.id).unwrap().placements.is_empty());
+    }
+
+    #[test]
+    fn legacy_shelves_can_shrink_without_losing_placements_or_expanding_past_the_limit() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        db.execute(
+            "INSERT INTO shelves (name, rows, columns, orientation) VALUES ('Legacy', 14, 12, 'vertical')",
+            [],
+        )
+        .unwrap();
+        let id = db.last_insert_rowid();
+        add_album(&mut db, directory.path(), "one");
+        update_placements(&mut db, id, vec![set(11, 8, "one")]).unwrap();
+
+        assert!(update_shelf(&mut db, id, settings("Renamed", 14, 12)).is_ok());
+        let error = update_shelf(&mut db, id, settings("Renamed", 15, 12)).unwrap_err();
+        assert!(error.contains("rows must be between 1 and 14"));
+        let error = update_shelf(&mut db, id, settings("Renamed", 10, 10)).unwrap_err();
+        assert!(error.contains("row 12, column 9"));
+        let layout = load_shelf(&mut db, id).unwrap();
+        assert_eq!(layout.shelf.settings, settings("Renamed", 14, 12));
+
+        assert!(update_shelf(&mut db, id, settings("Renamed", 12, 10)).is_ok());
+        let error = update_shelf(&mut db, id, settings("Renamed", 12, 11)).unwrap_err();
+        assert!(error.contains("columns must be between 1 and 10"));
+        assert_eq!(
+            load_shelf(&mut db, id).unwrap().placements,
+            layout.placements
+        );
     }
 
     #[test]
