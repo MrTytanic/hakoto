@@ -71,16 +71,6 @@
 .crate-album-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .crate-album-actions button { display: inline-flex; align-items: center; }
 
-.crate-dialog {
-  width: min(480px, calc(100% - 32px));
-  max-height: calc(100% - 32px);
-  margin: auto;
-  color: var(--text);
-}
-
-.crate-dialog::backdrop { background: var(--overlay); }
-.crate-dialog-picker::backdrop { background: var(--shadow); backdrop-filter: blur(3px); }
-
 .crate-dialog-picker[open] {
   display: flex;
   flex-direction: column;
@@ -126,8 +116,6 @@
 .crate-picker-filters .album-format-options { grid-template-columns: repeat(auto-fit, minmax(min(145px, 100%), 1fr)); }
 .crate-picker-filters .album-cancel { margin-top: 8px; }
 .crate-picker .album-grid { grid-template-columns: repeat(auto-fill, minmax(min(132px, 100%), 1fr)); }
-.crate-dialog :is(button, select, summary, input[type="checkbox"]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
-
-.crate-dialog .crate-delete { background: var(--danger-action); color: var(--danger-action-text); }
-.crate-dialog .crate-delete:hover { background: var(--danger-action-hover); }
+.app-modal .crate-delete { background: var(--danger-action); color: var(--danger-action-text); }
+.app-modal .crate-delete:hover { background: var(--danger-action-hover); }
 .crates-page button:disabled { opacity: .5; cursor: default; }

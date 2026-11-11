@@ -1,6 +1,7 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import { albumFormats } from "../constants/albumFormats";
 import type { Album } from "../types/Album";
+import Modal from "./Modal";
 
 function localDate() {
   const now = new Date();
@@ -14,17 +15,10 @@ export default function AlbumAcquisitionDialog({ album, onAcquire, onClose }: {
   onAcquire: (id: string, format: string, dateAcquired: string) => Promise<void>;
   onClose: (acquired?: boolean) => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [today] = useState(localDate);
-
-  useLayoutEffect(() => {
-    const element = dialog.current!;
-    element.showModal();
-    return () => element.close();
-  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -44,11 +38,8 @@ export default function AlbumAcquisitionDialog({ album, onAcquire, onClose }: {
   }
 
   return (
-    <dialog ref={dialog} className="album-modal album-acquire-dialog" aria-labelledby="acquire-title"
-      aria-describedby="acquire-description" aria-busy={busy} onCancel={event => {
-        event.preventDefault();
-        if (!pending.current) onClose();
-      }}>
+    <Modal className="album-modal" aria-labelledby="acquire-title"
+      aria-describedby="acquire-description" aria-busy={busy} onDismiss={() => { if (!pending.current) onClose(); }}>
       <div className="album-modal-header"><h2 id="acquire-title">Add to Collection</h2></div>
       <p id="acquire-description">Move “{album.title}” from your wishlist to your collection.</p>
       <form onSubmit={submit}>
@@ -64,12 +55,12 @@ export default function AlbumAcquisitionDialog({ album, onAcquire, onClose }: {
           <input id="acquire-date" name="dateAcquired" type="date" min="0001-01-01" max="9999-12-31"
             defaultValue={today} required disabled={busy} />
         </div>
-        {error && <p className="album-acquire-error" role="alert">{error}</p>}
+        {error && <p className="app-modal-error" role="alert">{error}</p>}
         <div className="album-modal-actions">
           <button type="button" className="album-cancel" onClick={() => onClose()} disabled={busy}>Cancel</button>
           <button type="submit" className="album-submit" disabled={busy}>{busy ? "Adding…" : "Add to Collection"}</button>
         </div>
       </form>
-    </dialog>
+    </Modal>
   );
 }

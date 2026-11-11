@@ -1,5 +1,6 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import type { Shelf, ShelfSettings } from "../types/Shelf";
+import Modal from "./Modal";
 
 const MAX_SHELF_DIMENSION = 10;
 
@@ -13,7 +14,6 @@ type ShelfDialogProps = {
 };
 
 export default function ShelfDialog({ action, onClose, onSave, onDelete }: ShelfDialogProps) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -23,12 +23,6 @@ export default function ShelfDialog({ action, onClose, onSave, onDelete }: Shelf
   const maxRows = Math.max(MAX_SHELF_DIMENSION, shelf?.rows ?? 0);
   const maxColumns = Math.max(MAX_SHELF_DIMENSION, shelf?.columns ?? 0);
   const oversized = maxRows > MAX_SHELF_DIMENSION || maxColumns > MAX_SHELF_DIMENSION;
-
-  useLayoutEffect(() => {
-    const dialog = dialogRef.current!;
-    dialog.showModal();
-    return () => dialog.close();
-  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -61,16 +55,13 @@ export default function ShelfDialog({ action, onClose, onSave, onDelete }: Shelf
   }
 
   return (
-    <dialog
-      ref={dialogRef}
+    <Modal
       className="album-modal shelf-dialog"
       aria-labelledby="shelf-dialog-title"
+      role={deleting ? "alertdialog" : undefined}
       aria-describedby={deleting ? "shelf-delete-description" : undefined}
       aria-busy={busy}
-      onCancel={event => {
-        event.preventDefault();
-        if (!pending.current) onClose();
-      }}
+      onDismiss={() => { if (!pending.current) onClose(); }}
     >
       <div className="album-modal-header">
         <h2 id="shelf-dialog-title">{title}</h2>
@@ -112,12 +103,12 @@ export default function ShelfDialog({ action, onClose, onSave, onDelete }: Shelf
         )}
         {error && <p className="shelf-error" role="alert">{error}</p>}
         <div className="album-modal-actions">
-          <button type="button" className="album-cancel" onClick={onClose} disabled={busy}>Cancel</button>
+          <button type="button" className="album-cancel" onClick={onClose} disabled={busy} data-initial-focus={deleting || undefined}>Cancel</button>
           <button type="submit" className={deleting ? "album-submit shelf-delete-confirm" : "album-submit"} disabled={busy}>
             {busy ? (deleting ? "Deleting…" : "Saving…") : deleting ? "Delete Shelf" : shelf ? "Save Changes" : "Create Shelf"}
           </button>
         </div>
       </form>
-    </dialog>
+    </Modal>
   );
 }

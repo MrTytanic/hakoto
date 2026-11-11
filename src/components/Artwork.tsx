@@ -62,9 +62,9 @@ export function ArtworkPicker({ artwork, filename = null, disabled, onChange, on
             }
           }}
         />
-        <ArtworkImage src={src} alt="Artwork preview" fallback={
+        <ArtworkImage src={src} alt={artwork ? "Selected album cover preview" : "Current album cover"} fallback={
           <>
-            <ImagePlus size={25} />
+            <ImagePlus size={25} aria-hidden="true" />
             <span>Upload Cover Art</span>
             <small>PNG, JPG, or WebP (max 5 MB)</small>
           </>

@@ -36,7 +36,7 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
       if (menu.current?.open && event.target instanceof Node && !menu.current.contains(event.target)) closeMenu(false);
     };
     const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && menu.current?.open) {
+      if (event.key === "Escape" && menu.current?.open && event.target instanceof Node && menu.current.contains(event.target)) {
         event.preventDefault();
         event.stopPropagation();
         closeMenu();
@@ -53,7 +53,7 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
   }, [hasActions]);
 
   async function runAction(action: AlbumCardAction, keyboard: boolean) {
-    closeMenu(keyboard);
+    closeMenu(keyboard || action === "edit" || action === "delete" || action === "acquire");
     if (busy.current) return;
     busy.current = true;
     try {
@@ -74,8 +74,8 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
         <div className="album-artwork">
           <ArtworkImage
             src={artworkUrl(album.artwork)}
-            alt={`${album.title} cover`}
-            fallback={<Disc3 size={40} strokeWidth={1.2} />}
+            alt=""
+            fallback={<Disc3 size={40} strokeWidth={1.2} aria-hidden="true" />}
             lazy
           />
 

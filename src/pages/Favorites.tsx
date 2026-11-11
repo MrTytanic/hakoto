@@ -18,15 +18,15 @@ type FavoritesProps = {
   albums: Album[];
   onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
-  onNotify: (message: string, type: "error") => void;
   onBrowseCollection: () => void;
 };
 
-function Favorites({ profile, albums, onUpdate, onDelete, onNotify, onBrowseCollection }: FavoritesProps) {
+function Favorites({ profile, albums, onUpdate, onDelete, onBrowseCollection }: FavoritesProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [initialAction, setInitialAction] = useState<"edit" | "delete">();
   const [query, setQuery] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const favoriteAlbums = useMemo(() => albums.filter(album => album.favorite), [albums]);
   const favorites = useMemo(() => getVisibleAlbums(favoriteAlbums, { query, formats: [], sort: "collection" }), [favoriteAlbums, query]);
   const [pageSize, setPageSize] = useState(collectionPageSizePreference.read);
@@ -46,7 +46,7 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify, onBrowseColl
         <div className="collection-header">
           <ProfileAvatar picture={profile.profilePicture} />
 
-          <h1>
+          <h1 ref={headingRef} tabIndex={-1}>
             {profile.displayName.trim()
               ? `${profile.displayName.trim()}'s Favorites`
               : "Your Favorites"}
@@ -106,7 +106,7 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify, onBrowseColl
           initialAction={initialAction}
           onUpdate={onUpdate}
           onDelete={onDelete}
-          onError={message => onNotify(message, "error")}
+          fallbackFocus={headingRef}
           onClose={() => setSelectedId(null)}
         />
       )}

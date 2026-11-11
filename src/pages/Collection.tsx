@@ -15,6 +15,7 @@ import AlbumPagination from "../components/AlbumPagination";
 import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import AlbumAcquisitionDialog from "../components/AlbumAcquisitionDialog";
+import Modal from "../components/Modal";
 import { ArtworkPicker } from "../components/Artwork";
 import { encodeArtwork, type ArtworkChange } from "../artwork";
 import type { UndoNotice } from "../components/toast/Toast";
@@ -117,6 +118,7 @@ function Collection({
   const dividersPaused = alphabeticalDividers && allGroups === null;
 
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [addError, setAddError] = useState("");
   const [isSaving, setIsSaving] = useState(false);
   const [albumActionMode, setAlbumActionMode] = useState<"edit" | "delete">();
   const [metadata, setMetadata] = useState<AlbumMetadata>({});
@@ -190,6 +192,7 @@ function Collection({
   }
 
   function resetForm() {
+    setAddError("");
     setTitle("");
     setArtist("");
     setFormat(defaultFormat);
@@ -208,7 +211,11 @@ function Collection({
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (savingRef.current || !title.trim() || !artist.trim()) return;
+    if (savingRef.current) return;
+    if (!title.trim() || !artist.trim()) {
+      setAddError("Enter an album title and artist.");
+      return;
+    }
 
     const album: Album = {
       id: crypto.randomUUID(),
@@ -224,6 +231,7 @@ function Collection({
 
     savingRef.current = true;
     setIsSaving(true);
+    setAddError("");
 
     try {
       const bytes = artwork ? await encodeArtwork(artwork) : null;
@@ -231,7 +239,7 @@ function Collection({
       onAdd(saved);
     } catch (error) {
       console.error("Failed to save album:", error);
-      notify(typeof error === "string" ? error : error instanceof Error ? error.message : "Failed to save album. Please try again.");
+      setAddError(`Couldn’t add this album. ${error instanceof Error ? error.message : String(error)}`);
       return;
     } finally {
       savingRef.current = false;
@@ -408,115 +416,111 @@ function Collection({
           initialAction={albumActionMode}
           onUpdate={onUpdate}
           onDelete={onDelete}
-          onError={notify}
+          fallbackFocus={addButton}
           onClose={() => setSelectedId(null)}
         />
       )}
 
       {isModalOpen && (
-        <div
-          className="album-modal-overlay"
-          onMouseDown={e => {
-            if (e.target === e.currentTarget) closeAddModal();
-          }}
+        <Modal
+          className="album-modal"
+          aria-labelledby="add-album-title"
+          aria-busy={isSaving}
+          fallbackFocus={addButton}
+          onDismiss={closeAddModal}
+          dismissOnBackdrop
         >
-          <div
-            className="album-modal"
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="add-album-title"
-            aria-busy={isSaving}
-          >
-            <div className="album-modal-header">
-              <h2 id="add-album-title">Add Album</h2>
+          <div className="album-modal-header">
+            <h2 id="add-album-title">Add Album</h2>
 
-              <button
-                type="button"
-                aria-label="Close"
-                onClick={closeAddModal}
-                disabled={isSaving}
-              >
-                <X size={20} />
-              </button>
-            </div>
-
-            <form onSubmit={handleSubmit}>
-              <fieldset
-                disabled={isSaving}
-                style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
-              >
-                <div className="album-form-field">
-                  <label htmlFor="album-title">Album Title</label>
-                  <input
-                    id="album-title"
-                    maxLength={500}
-                    value={title}
-                    onChange={e => setTitle(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="album-form-field">
-                  <label htmlFor="album-artist">Artist</label>
-                  <input
-                    id="album-artist"
-                    maxLength={300}
-                    value={artist}
-                    onChange={e => setArtist(e.target.value)}
-                    required
-                  />
-                </div>
-
-                <div className="album-form-field">
-                  <label htmlFor="album-format">Format</label>
-                  <select
-                    id="album-format"
-                    value={format}
-                    onChange={e => setFormat(e.target.value)}
-                  >
-                    {wishlist && <option value="">Format undecided</option>}
-                    {albumFormats.map(item => (
-                      <option key={item} value={item}>
-                        {item}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
-                <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
-                <p className="album-date-note">Date added is recorded automatically.</p>
-                <AlbumReleaseFields value={release} onChange={setRelease} disabled={isSaving} wishlist={wishlist} />
-
-                <ArtworkPicker
-                  artwork={artwork}
-                  disabled={isSaving}
-                  onChange={setArtwork}
-                  onError={notify}
-                />
-
-                <div className="album-modal-actions">
-                  <button
-                    type="button"
-                    className="album-cancel"
-                    onClick={closeAddModal}
-                    disabled={isSaving}
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="submit"
-                    className="album-submit"
-                    disabled={isSaving}
-                  >
-                    {isSaving ? "Saving..." : `Add to ${pageTitle}`}
-                  </button>
-                </div>
-              </fieldset>
-            </form>
+            <button
+              type="button"
+              aria-label="Close add album dialog"
+              onClick={closeAddModal}
+              disabled={isSaving}
+            >
+              <X size={20} aria-hidden="true" />
+            </button>
           </div>
-        </div>
+
+          <form onSubmit={handleSubmit}>
+            <fieldset
+              disabled={isSaving}
+              style={{ border: 0, padding: 0, margin: 0, minWidth: 0 }}
+            >
+              <div className="album-form-field">
+                <label htmlFor="album-title">Album Title</label>
+                <input
+                  id="album-title"
+                  data-initial-focus
+                  maxLength={500}
+                  value={title}
+                  onChange={e => setTitle(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="album-form-field">
+                <label htmlFor="album-artist">Artist</label>
+                <input
+                  id="album-artist"
+                  maxLength={300}
+                  value={artist}
+                  onChange={e => setArtist(e.target.value)}
+                  required
+                />
+              </div>
+
+              <div className="album-form-field">
+                <label htmlFor="album-format">Format</label>
+                <select
+                  id="album-format"
+                  value={format}
+                  onChange={e => setFormat(e.target.value)}
+                >
+                  {wishlist && <option value="">Format undecided</option>}
+                  {albumFormats.map(item => (
+                    <option key={item} value={item}>
+                      {item}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
+              <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
+              <p className="album-date-note">Date added is recorded automatically.</p>
+              <AlbumReleaseFields value={release} onChange={setRelease} disabled={isSaving} wishlist={wishlist} />
+
+              <ArtworkPicker
+                artwork={artwork}
+                disabled={isSaving}
+                onChange={setArtwork}
+                onError={setAddError}
+              />
+
+              {addError && <p className="app-modal-error" role="alert">{addError}</p>}
+              <div className="album-modal-actions">
+                <button
+                  type="button"
+                  className="album-cancel"
+                  onClick={closeAddModal}
+                  disabled={isSaving}
+                >
+                  Cancel
+                </button>
+
+                <button
+                  type="submit"
+                  className="album-submit"
+                  disabled={isSaving}
+                >
+                  {isSaving ? "Saving..." : `Add to ${pageTitle}`}
+                </button>
+              </div>
+            </fieldset>
+          </form>
+        </Modal>
       )}
     </div>
   );

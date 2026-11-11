@@ -35,7 +35,7 @@ test("Favorites bounds mounted cards using the saved collection page size", () =
       id: String(id), title: `Album ${id}`, artist: "Artist", format: "CD",
       releaseYear: "", artwork: null, favorite: true
     })),
-    async onUpdate() {}, async onDelete() {}, onNotify() {}, onBrowseCollection() {}
+    async onUpdate() {}, async onDelete() {}, onBrowseCollection() {}
   }));
   assert.equal((html.match(/class="album-card"/g) ?? []).length, 25);
   assert.match(html, /Showing 1–25 of 30 favorites/);

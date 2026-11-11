@@ -209,16 +209,6 @@
   margin-bottom: 14px;
 }
 
-.shelf-dialog {
-  width: min(480px, calc(100% - 32px));
-  max-height: calc(100% - 32px);
-  color: var(--text);
-}
-
-.shelf-dialog::backdrop {
-  background: var(--overlay);
-}
-
 .shelf-dialog-fields {
   min-width: 0;
   margin: 0;
@@ -240,8 +230,7 @@
   background: var(--danger-action-hover);
 }
 
-.shelf-workspace :is(button, select, .shelf-scroll):focus-visible,
-.shelf-dialog :is(button, input, select):focus-visible {
+.shelf-workspace :is(button, select, .shelf-scroll):focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 2px;
 }
