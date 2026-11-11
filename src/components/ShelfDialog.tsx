@@ -1,6 +1,8 @@
 import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import type { Shelf, ShelfSettings } from "../types/Shelf";
 
+const MAX_SHELF_DIMENSION = 10;
+
 export type ShelfDialogAction = { kind: "create" } | { kind: "edit" | "delete"; shelf: Shelf };
 
 type ShelfDialogProps = {
@@ -18,6 +20,9 @@ export default function ShelfDialog({ action, onClose, onSave, onDelete }: Shelf
   const deleting = action.kind === "delete";
   const shelf = action.kind === "create" ? undefined : action.shelf;
   const title = deleting ? "Delete Shelf" : shelf ? "Edit Shelf" : "New Shelf";
+  const maxRows = Math.max(MAX_SHELF_DIMENSION, shelf?.rows ?? 0);
+  const maxColumns = Math.max(MAX_SHELF_DIMENSION, shelf?.columns ?? 0);
+  const oversized = maxRows > MAX_SHELF_DIMENSION || maxColumns > MAX_SHELF_DIMENSION;
 
   useLayoutEffect(() => {
     const dialog = dialogRef.current!;
@@ -84,13 +89,18 @@ export default function ShelfDialog({ action, onClose, onSave, onDelete }: Shelf
             <div className="album-form-row">
               <div className="album-form-field">
                 <label htmlFor="shelf-rows">Rows</label>
-                <input id="shelf-rows" name="rows" type="number" min={1} max={50} step={1} defaultValue={shelf?.rows ?? 3} required />
+                <input id="shelf-rows" name="rows" type="number" min={1} max={maxRows} step={1} defaultValue={shelf?.rows ?? 3} required aria-describedby="shelf-size-description" />
               </div>
               <div className="album-form-field">
                 <label htmlFor="shelf-columns">Columns</label>
-                <input id="shelf-columns" name="columns" type="number" min={1} max={50} step={1} defaultValue={shelf?.columns ?? 5} required />
+                <input id="shelf-columns" name="columns" type="number" min={1} max={maxColumns} step={1} defaultValue={shelf?.columns ?? 5} required aria-describedby="shelf-size-description" />
               </div>
             </div>
+            <p id="shelf-size-description">
+              {oversized
+                ? `The shelf limit is ${MAX_SHELF_DIMENSION} × ${MAX_SHELF_DIMENSION}. You can keep or reduce an oversized dimension. Move any albums outside the new dimensions before saving.`
+                : `Shelves can have up to ${MAX_SHELF_DIMENSION} rows and ${MAX_SHELF_DIMENSION} columns.`}
+            </p>
             <div className="album-form-field">
               <label htmlFor="shelf-orientation">Media orientation</label>
               <select id="shelf-orientation" name="orientation" defaultValue={shelf?.orientation ?? "vertical"}>
