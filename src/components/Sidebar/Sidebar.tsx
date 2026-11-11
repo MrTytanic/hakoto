@@ -8,7 +8,7 @@ import "./Sidebar.css";
 
 const navigation = [
   { label: "Collection", icon: Library },
-  { label: "Shelf Mode", icon: Layers3 },
+  { id: "Shelf Mode", label: "Shelves", icon: Layers3 },
   { label: "Favorites", icon: Heart },
   { label: "Crates", icon: Archive },
   { label: "Wishlist", icon: Bookmark },
@@ -52,13 +52,14 @@ function Sidebar({ activePage, setActivePage }: SidebarProps) {
       </div>
 
       <div className="sidebar-navigation">
-        {navigation.map(({ label, icon: Icon }) => (
+        {navigation.map(({ label, id = label, icon: Icon }) => (
           <button
-            key={label}
-            className={`sidebar-button ${activePage === label ? "active" : ""}`}
-            onClick={() => setActivePage(label)}
+            key={id}
+            className={`sidebar-button ${activePage === id ? "active" : ""}`}
+            onClick={() => setActivePage(id)}
+            aria-label={label}
             title={label}
-            aria-current={activePage === label ? "page" : undefined}
+            aria-current={activePage === id ? "page" : undefined}
           >
             <Icon size={20} strokeWidth={1.8} />
             {isExpanded && <span className="sidebar-label">{label}</span>}

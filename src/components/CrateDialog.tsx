@@ -1,7 +1,8 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent } from "react";
 import type { Album } from "../types/Album";
 import type { Crate, CrateSettings } from "../types/Crate";
 import CrateAlbumPicker from "./CrateAlbumPicker";
+import Modal from "./Modal";
 
 export type CrateDialogAction = { kind: "create" } | { kind: "edit" | "delete"; crate: Crate };
 
@@ -12,7 +13,6 @@ export default function CrateDialog({ action, albums, onSave, onDelete, onClose 
   onDelete: (crateId: number) => Promise<void>;
   onClose: () => void;
 }) {
-  const dialog = useRef<HTMLDialogElement>(null);
   const pending = useRef(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -20,12 +20,6 @@ export default function CrateDialog({ action, albums, onSave, onDelete, onClose 
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(crate?.albumIds));
   const deleting = action.kind === "delete";
   const title = deleting ? "Delete Crate" : crate ? "Edit Crate" : "Create Crate";
-
-  useLayoutEffect(() => {
-    const element = dialog.current!;
-    element.showModal();
-    return () => element.close();
-  }, []);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -53,12 +47,9 @@ export default function CrateDialog({ action, albums, onSave, onDelete, onClose 
   }
 
   return (
-    <dialog ref={dialog} className={`album-modal crate-dialog${deleting ? "" : " crate-dialog-picker"}`} aria-labelledby="crate-dialog-title"
-      aria-describedby={deleting ? "crate-delete-description" : undefined} aria-busy={busy}
-      onCancel={event => {
-        event.preventDefault();
-        if (!pending.current) onClose();
-      }}>
+    <Modal className={`album-modal${deleting ? "" : " crate-dialog-picker"}`} aria-labelledby="crate-dialog-title"
+      role={deleting ? "alertdialog" : undefined} aria-describedby={deleting ? "crate-delete-description" : undefined}
+      aria-busy={busy} onDismiss={() => { if (!pending.current) onClose(); }}>
       <div className="album-modal-header"><h2 id="crate-dialog-title">{title}</h2></div>
       <form onSubmit={submit}>
         <div className="crate-dialog-body">
@@ -66,7 +57,7 @@ export default function CrateDialog({ action, albums, onSave, onDelete, onClose 
             <fieldset className="crate-dialog-fields" disabled={busy}>
               <div className="album-form-field">
                 <label htmlFor="crate-name">Name</label>
-                <input id="crate-name" name="name" defaultValue={crate?.name} required />
+              <input id="crate-name" name="name" defaultValue={crate?.name} required data-initial-focus />
               </div>
               <div className="album-form-field">
                 <label htmlFor="crate-description">Description (optional)</label>
@@ -85,13 +76,13 @@ export default function CrateDialog({ action, albums, onSave, onDelete, onClose 
         <div className="crate-dialog-footer">
           {!deleting && <p className="crate-selected-count" role="status">{selected.size} selected</p>}
           <div className="album-modal-actions">
-            <button type="button" className="album-cancel" onClick={onClose} disabled={busy}>Cancel</button>
+            <button type="button" className="album-cancel" onClick={onClose} disabled={busy} data-initial-focus={deleting || undefined}>Cancel</button>
             <button type="submit" className={`album-submit${deleting ? " crate-delete" : ""}`} disabled={busy}>
               {busy ? (deleting ? "Deleting…" : "Saving…") : deleting ? "Delete Crate" : crate ? "Save Changes" : "Create Crate"}
             </button>
           </div>
         </div>
       </form>
-    </dialog>
+    </Modal>
   );
 }

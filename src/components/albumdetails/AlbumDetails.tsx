@@ -1,5 +1,5 @@
 
-import { useRef, useState, type FormEvent } from "react";
+import { useRef, useState, type FormEvent, type RefObject } from "react";
 import { Disc3, Heart, Pencil, Trash2, X } from "lucide-react";
 import type { Album } from "../../types/Album";
 import { albumFormats } from "../../constants/albumFormats";
@@ -7,6 +7,7 @@ import { artworkUrl, encodeArtwork, type ArtworkChange } from "../../artwork";
 import { ArtworkImage, ArtworkPicker } from "../Artwork";
 import { findDuplicateAlbum } from "../../duplicateAlbums";
 import AlbumMetadataFields, { AlbumReleaseFields, albumMetadata, albumReleaseDraft, albumReleaseMetadata } from "../AlbumMetadataFields";
+import Modal from "../Modal";
 import "./AlbumDetails.css";
 
 type AlbumDetailsProps = {
@@ -14,9 +15,9 @@ type AlbumDetailsProps = {
   albums: readonly Album[];
   initialAction?: "edit" | "delete";
   onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
-  onError: (message: string) => void;
   onDelete: (id: string) => Promise<void>;
   onClose: () => void;
+  fallbackFocus: RefObject<HTMLElement | null>;
 };
 
 function AlbumDetails({
@@ -25,13 +26,16 @@ function AlbumDetails({
   initialAction,
   onUpdate,
   onDelete,
-  onError,
-  onClose
+  onClose,
+  fallbackFocus
 }: AlbumDetailsProps) {
   const wishlist = album.ownership === "wishlist";
   const [editing, setEditing] = useState(initialAction === "edit");
   const [showDeleteConfirmation, setShowDeleteConfirmation] = useState(initialAction === "delete");
   const [isSaving, setIsSaving] = useState(false);
+  const [error, setError] = useState("");
+  const editTitle = useRef<HTMLInputElement>(null);
+  const editButton = useRef<HTMLButtonElement>(null);
 
   // Prevent duplicate requests before React rerenders.
   const savingRef = useRef(false);
@@ -48,6 +52,7 @@ function AlbumDetails({
   const [artwork, setArtwork] = useState<File | null>();
 
   function startEditing() {
+    setError("");
     setTitle(album.title);
     setArtist(album.artist);
     setFormat(album.format);
@@ -55,6 +60,13 @@ function AlbumDetails({
     setMetadata(albumMetadata(album));
     setArtwork(undefined);
     setEditing(true);
+    requestAnimationFrame(() => editTitle.current?.focus());
+  }
+
+  function finishEditing() {
+    setError("");
+    setEditing(false);
+    requestAnimationFrame(() => editButton.current?.focus());
   }
 
   function closeModal() {
@@ -62,25 +74,31 @@ function AlbumDetails({
     onClose();
   }
 
+  function closeDeleteConfirmation() {
+    if (savingRef.current) return;
+    setError("");
+    setShowDeleteConfirmation(false);
+  }
+
   async function saveChanges(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
-    if (savingRef.current || !title.trim() || !artist.trim()) return;
+    if (savingRef.current) return;
+    if (!title.trim() || !artist.trim()) {
+      setError("Enter an album title and artist.");
+      return;
+    }
 
     savingRef.current = true;
     setIsSaving(true);
+    setError("");
 
     try {
       let change: ArtworkChange | undefined;
       if (artwork === null) {
         change = { kind: "remove" };
       } else if (artwork) {
-        try {
-          change = { kind: "replace", bytes: await encodeArtwork(artwork) };
-        } catch (error) {
-          onError(error instanceof Error ? error.message : "Artwork could not be prepared.");
-          return;
-        }
+        change = { kind: "replace", bytes: await encodeArtwork(artwork) };
       }
 
       await onUpdate({
@@ -92,9 +110,9 @@ function AlbumDetails({
         ...albumMetadata(metadata, format === album.format ? undefined : format)
       }, change);
 
-      setEditing(false);
+      finishEditing();
     } catch (error) {
-      console.error("Failed to update album:", error);
+      setError(`Couldn’t save changes. ${error instanceof Error ? error.message : String(error)}`);
     } finally {
       savingRef.current = false;
       setIsSaving(false);
@@ -106,6 +124,7 @@ function AlbumDetails({
 
     savingRef.current = true;
     setIsSaving(true);
+    setError("");
 
     try {
       await onUpdate({
@@ -113,7 +132,7 @@ function AlbumDetails({
         favorite: !album.favorite
       });
     } catch (error) {
-      console.error("Failed to update favorite:", error);
+      setError(`Couldn’t update favorite. ${String(error)}`);
     } finally {
       savingRef.current = false;
       setIsSaving(false);
@@ -125,12 +144,13 @@ function AlbumDetails({
 
     savingRef.current = true;
     setIsSaving(true);
+    setError("");
 
     try {
       await onDelete(album.id);
       onClose();
     } catch (error) {
-      console.error("Failed to delete album:", error);
+      setError(`Couldn’t delete this album. ${String(error)}`);
     } finally {
       savingRef.current = false;
       setIsSaving(false);
@@ -138,22 +158,14 @@ function AlbumDetails({
   }
 
   return (
-    <div
-      className="details-overlay"
-      onMouseDown={e => {
-        if (
-          e.target === e.currentTarget &&
-          !showDeleteConfirmation
-        ) {
-          closeModal();
-        }
-      }}
-    >
-      <div
+    <>
+      <Modal
         className="details-modal"
-        role="dialog"
-        aria-modal={!showDeleteConfirmation}
         aria-labelledby="details-title"
+        aria-busy={isSaving && !showDeleteConfirmation}
+        fallbackFocus={fallbackFocus}
+        onDismiss={closeModal}
+        dismissOnBackdrop
       >
         <div className="details-header">
           <h2 id="details-title">
@@ -163,10 +175,10 @@ function AlbumDetails({
           <button
             type="button"
             onClick={closeModal}
-            aria-label="Close"
+            aria-label="Close album details"
             disabled={isSaving || showDeleteConfirmation}
           >
-            <X size={20} />
+            <X size={20} aria-hidden="true" />
           </button>
         </div>
 
@@ -176,7 +188,8 @@ function AlbumDetails({
             <input
               id="edit-title"
               maxLength={500}
-              autoFocus
+              ref={editTitle}
+              data-initial-focus
               value={title}
               onChange={e => setTitle(e.target.value)}
               disabled={isSaving}
@@ -219,13 +232,14 @@ function AlbumDetails({
               filename={album.artwork}
               disabled={isSaving}
               onChange={setArtwork}
-              onError={onError}
+              onError={setError}
             />
 
+            {error && <p className="app-modal-error" role="alert">{error}</p>}
             <div className="details-actions">
               <button
                 type="button"
-                onClick={() => setEditing(false)}
+                onClick={finishEditing}
                 disabled={isSaving}
               >
                 Cancel
@@ -246,8 +260,8 @@ function AlbumDetails({
               <div className="details-artwork">
                 <ArtworkImage
                   src={artworkUrl(album.artwork)}
-                  alt={`${album.title} cover`}
-                  fallback={<Disc3 size={48} strokeWidth={1.2} />}
+                  alt={`Cover art for ${album.title} by ${album.artist}`}
+                  fallback={<Disc3 size={48} strokeWidth={1.2} aria-hidden="true" />}
                 />
               </div>
 
@@ -268,6 +282,7 @@ function AlbumDetails({
 
             {album.notes && <p className="details-notes"><strong>Notes</strong><br />{album.notes}</p>}
 
+            {error && !showDeleteConfirmation && <p className="app-modal-error" role="alert">{error}</p>}
             <div className="details-actions">
               {!wishlist && <button
                 type="button"
@@ -276,6 +291,7 @@ function AlbumDetails({
               >
                 <Heart
                   size={16}
+                  aria-hidden="true"
                   fill={album.favorite ? "currentColor" : "none"}
                   color={album.favorite ? "var(--danger)" : "currentColor"}
                 />
@@ -288,72 +304,73 @@ function AlbumDetails({
 
               <button
                 type="button"
+                ref={editButton}
                 onClick={startEditing}
                 disabled={isSaving}
               >
-                <Pencil size={16} />
+                <Pencil size={16} aria-hidden="true" />
                 Edit
               </button>
 
               <button
                 type="button"
                 className="details-delete"
-                onClick={() => setShowDeleteConfirmation(true)}
+                onClick={() => { setError(""); setShowDeleteConfirmation(true); }}
                 disabled={isSaving}
               >
-                <Trash2 size={16} />
+                <Trash2 size={16} aria-hidden="true" />
                 Delete
               </button>
             </div>
           </>
         )}
-      </div>
+      </Modal>
 
       {showDeleteConfirmation && (
-        <div className="delete-confirmation-overlay">
-          <div
-            className="delete-confirmation"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="delete-confirmation-title"
-            aria-describedby="delete-confirmation-description"
-          >
-            <div className="delete-confirmation-icon">
-              <Trash2 size={22} />
-            </div>
-
-            <h3 id="delete-confirmation-title">
-              Delete Album?
-            </h3>
-
-            <p id="delete-confirmation-description">
-              Are you sure you want to delete{" "}
-              <strong>{album.title}</strong> from your {wishlist ? "wishlist" : "collection"}?
-            </p>
-
-            <div className="delete-confirmation-actions">
-              <button
-                type="button"
-                autoFocus
-                onClick={() => setShowDeleteConfirmation(false)}
-                disabled={isSaving}
-              >
-                Cancel
-              </button>
-
-              <button
-                type="button"
-                className="delete-confirm-button"
-                onClick={deleteAlbum}
-                disabled={isSaving}
-              >
-                {isSaving ? "Deleting..." : "Delete Album"}
-              </button>
-            </div>
+        <Modal
+          className="delete-confirmation"
+          role="alertdialog"
+          aria-labelledby="delete-confirmation-title"
+          aria-describedby="delete-confirmation-description"
+          aria-busy={isSaving}
+          onDismiss={closeDeleteConfirmation}
+        >
+          <div className="delete-confirmation-icon" aria-hidden="true">
+            <Trash2 size={22} />
           </div>
-        </div>
+
+          <h3 id="delete-confirmation-title">
+            Delete Album?
+          </h3>
+
+          <p id="delete-confirmation-description">
+            Are you sure you want to delete{" "}
+            <strong>{album.title}</strong> from your {wishlist ? "wishlist" : "collection"}?
+          </p>
+
+          {error && <p className="app-modal-error" role="alert">{error}</p>}
+          <div className="delete-confirmation-actions">
+            <button
+              type="button"
+              data-initial-focus
+              onClick={closeDeleteConfirmation}
+              disabled={isSaving}
+            >
+              Cancel
+            </button>
+
+            <button
+              type="button"
+              className="delete-confirm-button"
+              onClick={deleteAlbum}
+              disabled={isSaving}
+            >
+              {isSaving ? "Deleting..." : "Delete Album"}
+            </button>
+          </div>
+        </Modal>
       )}
-    </div>
+    </>
   );
 }
 

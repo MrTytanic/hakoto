@@ -342,7 +342,7 @@ function App() {
         albums={ownedAlbums}
         onUpdate={updateAlbum}
         onDelete={deleteAlbum}
-        onNotify={notify}
+        onBrowseCollection={() => setActivePage("Collection")}
       />
     ),
 
@@ -363,7 +363,9 @@ function App() {
     Crates: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
       <Crates profile={profile} albums={ownedAlbums} revision={layoutRevision} onUndo={notifyUndo} />
     ),
-    Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : <Statistics profile={profile} albums={ownedAlbums} />,
+    Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
+      <Statistics profile={profile} albums={ownedAlbums} onBrowseCollection={() => setActivePage("Collection")} />
+    ),
     Settings: (
       <Settings
         profile={profile}

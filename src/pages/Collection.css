@@ -76,7 +76,7 @@
   margin-top: 10px;
 }
 
-.collection-pagination,
+.collection-page-summary,
 .collection-page-size,
 .collection-page-buttons {
   display: flex;
@@ -86,11 +86,19 @@
 }
 
 .collection-pagination {
-  justify-content: center;
-  gap: 12px;
+  display: grid;
+  justify-items: center;
+  gap: 10px;
   margin-top: 16px;
   font-size: calc(13px * var(--text-scale));
   color: var(--text-muted);
+}
+
+.collection-page-summary,
+.collection-page-size,
+.collection-page-buttons {
+  justify-content: center;
+  text-align: center;
 }
 
 .collection-page-size select {
@@ -398,23 +406,8 @@
 }
 
 /* Modal */
-.album-modal-overlay {
-  position: fixed;
-  z-index: 1000;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: clamp(8px, 3vmin, 20px);
-  background: var(--overlay);
-}
-
 .album-modal {
-  width: 100%;
   max-width: 480px;
-  max-height: 100%;
-  overscroll-behavior: contain;
-  overflow-y: auto;
   padding: 24px;
   border: 1px solid var(--border);
   border-radius: 12px;
@@ -434,16 +427,6 @@
   color: var(--text-strong);
   font-size: calc(20px * var(--text-scale));
 }
-
-.album-acquire-dialog {
-  width: min(480px, calc(100% - 32px));
-  max-height: calc(100% - 32px);
-  margin: auto;
-  color: var(--text);
-}
-
-.album-acquire-dialog::backdrop { background: var(--overlay); }
-.album-acquire-error { color: var(--danger); }
 
 .album-modal-header button {
   display: flex;

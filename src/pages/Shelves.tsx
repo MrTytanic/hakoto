@@ -209,9 +209,9 @@ export default function Shelves(collection: CollectionProps) {
       <section className="shelf-workspace" aria-labelledby="shelf-workspace-title">
         <div className="shelf-workspace-heading">
           <h2 id="shelf-workspace-title">Shelf Workspace</h2>
-          <button type="button" ref={newShelfButton} className="collection-add" disabled={list.status !== "ready" || saving} onClick={() => openDialog({ kind: "create" })}>
+          {(selected || list.status !== "ready") && <button type="button" ref={newShelfButton} className="collection-add" disabled={list.status !== "ready" || saving} onClick={() => openDialog({ kind: "create" })}>
             <Plus size={16} aria-hidden="true" /> New Shelf
-          </button>
+          </button>}
         </div>
 
         {list.status === "loading" ? <p className="shelf-message" role="status">Loading shelves…</p> :
@@ -243,7 +243,9 @@ export default function Shelves(collection: CollectionProps) {
                 <div className="shelf-occupancy">
                   <span id="shelf-occupancy-label">{occupancy.occupied}/{occupancy.total} slots occupied · {occupancy.percentage}%</span>
                   <progress value={occupancy.occupied} max={occupancy.total} aria-labelledby="shelf-occupancy-label" />
-                  {occupancy.occupied === 0 && <p>Place an album to start filling this shelf.</p>}
+                  {occupancy.occupied === 0 && collection.loadStatus === "ready" && <p>
+                    {collection.albums.length ? "Choose Place on an album below, then select an empty slot." : "Add an album below to start filling this shelf."}
+                  </p>}
                 </div>
               )}
               {canArrange && (
@@ -275,7 +277,10 @@ export default function Shelves(collection: CollectionProps) {
             <div className="shelf-message">
               <Layers3 size={30} strokeWidth={1.5} aria-hidden="true" />
               <h3>No shelves yet</h3>
-              <p>Create a shelf to start a layout for your collection.</p>
+              <p>Set up rows and columns to arrange your albums.</p>
+              <button type="button" ref={newShelfButton} className="collection-add" disabled={saving} onClick={() => openDialog({ kind: "create" })}>
+                <Plus size={16} aria-hidden="true" /> Create Shelf
+              </button>
             </div>
           )}
       </section>
