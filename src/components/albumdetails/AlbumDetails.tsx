@@ -41,7 +41,7 @@ function AlbumDetails({
   const [format, setFormat] = useState(album.format);
   const [release, setRelease] = useState(() => albumReleaseDraft(album));
 
-  const [metadata, setMetadata] = useState(() => albumMetadata(album, album.format));
+  const [metadata, setMetadata] = useState(() => albumMetadata(album));
 
   const duplicate = findDuplicateAlbum(albums, { id: album.id, title, artist, format });
 
@@ -52,7 +52,7 @@ function AlbumDetails({
     setArtist(album.artist);
     setFormat(album.format);
     setRelease(albumReleaseDraft(album));
-    setMetadata(albumMetadata(album, album.format));
+    setMetadata(albumMetadata(album));
     setArtwork(undefined);
     setEditing(true);
   }
@@ -89,7 +89,7 @@ function AlbumDetails({
         artist: artist.trim(),
         format,
         ...albumReleaseMetadata(release),
-        ...albumMetadata(metadata, format)
+        ...albumMetadata(metadata, format === album.format ? undefined : format)
       }, change);
 
       setEditing(false);

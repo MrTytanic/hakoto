@@ -67,7 +67,7 @@ function App() {
   const savingPicture = useRef(false);
 
   const [albums, setAlbums] = useState<Album[]>([]);
-  const ownedAlbums = useMemo(() => albums.filter(album => album.ownership !== "wishlist"), [albums]);
+  const ownedAlbums = useMemo(() => albums.filter(album => album.ownership === "owned"), [albums]);
   const wishlistAlbums = useMemo(() => albums.filter(album => album.ownership === "wishlist"), [albums]);
   const [albumLoadStatus, setAlbumLoadStatus] = useState<AlbumLoadStatus>("loading");
   const [albumLoadAttempt, setAlbumLoadAttempt] = useState(0);
@@ -171,11 +171,11 @@ function App() {
 
     async function loadAlbums() {
       try {
-        const savedAlbums = await invoke<Album[]>("get_albums");
+        const { owned, wishlist } = await invoke<{ owned: Album[]; wishlist: Album[] }>("get_album_library");
         const deleted = await invoke<{ token: string; title: string }[]>("get_deleted_albums");
 
         if (!cancelled) {
-          setAlbums(savedAlbums);
+          setAlbums([...owned, ...wishlist]);
           setAlbumLoadStatus("ready");
           deleted.forEach(item => offerDeletedUndo(item.token, item.title));
         }

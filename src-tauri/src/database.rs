@@ -24,6 +24,10 @@ const LEGACY_YEAR: &str = "CASE WHEN length(trim(release_year)) BETWEEN 1 AND 4
     AND CAST(release_year AS INTEGER) BETWEEN 1 AND 9999
     THEN CAST(release_year AS INTEGER) ELSE NULL END";
 
+const ALBUM_COLUMNS: &str = "id, title, artist, format, release_year, artwork, favorite,
+    pinned, date_added, condition, record_type, disc_size, original_release_year, date_acquired,
+    notes, ownership";
+
 pub fn initialize_database(
     app_dir: &Path,
     legacy_dir: Option<&Path>,
@@ -229,6 +233,31 @@ pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
     albums.collect()
 }
 
+#[derive(serde::Serialize)]
+pub struct AlbumLibrary {
+    pub owned: Vec<Album>,
+    pub wishlist: Vec<Album>,
+}
+
+pub fn get_album_library(connection: &mut Connection) -> rusqlite::Result<AlbumLibrary> {
+    // Read both scopes in one snapshot so an acquisition cannot appear twice or be missed.
+    let transaction = connection.transaction()?;
+    let library = {
+        let mut statement = transaction.prepare(&format!(
+            "SELECT {ALBUM_COLUMNS} FROM albums WHERE ownership = ?1 ORDER BY rowid ASC"
+        ))?;
+        let owned = statement
+            .query_map([Ownership::Owned.as_str()], read_album)?
+            .collect::<rusqlite::Result<_>>()?;
+        let wishlist = statement
+            .query_map([Ownership::Wishlist.as_str()], read_album)?
+            .collect::<rusqlite::Result<_>>()?;
+        AlbumLibrary { owned, wishlist }
+    };
+    transaction.commit()?;
+    Ok(library)
+}
+
 fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
     Ok(Album {
         id: row.get(0)?,
@@ -255,10 +284,7 @@ fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
 pub fn get_album(connection: &Connection, id: &str) -> rusqlite::Result<Option<Album>> {
     connection
         .query_row(
-            "SELECT id, title, artist, format, release_year, artwork, favorite,
-                pinned, date_added, condition, record_type, disc_size,
-                original_release_year, date_acquired, notes, ownership
-         FROM albums WHERE id = ?1",
+            &format!("SELECT {ALBUM_COLUMNS} FROM albums WHERE id = ?1"),
             [id],
             |row| {
                 let mut album = read_album(row)?;
@@ -1123,11 +1149,22 @@ mod tests {
         let directory = TestDirectory::new();
         let path = &directory.0;
         let mut db = initialize_database(path, None).unwrap();
+        let mut copy = album("owned-copy");
+        copy.format = "Digital (FLAC)".into();
+        copy.condition = Some("Mint".into());
+        copy.date_acquired = Some("2023-01-01".into());
+        save_album(&mut db, path, copy, None).unwrap();
+        db.execute_batch(
+            "INSERT INTO shelves VALUES (1, 'Shelf', 1, 2, 'vertical');
+             INSERT INTO shelf_placements VALUES (1, 0, 0, 'owned-copy');",
+        )
+        .unwrap();
         let mut candidate = album("wish");
         candidate.ownership = Ownership::Wishlist;
         candidate.format.clear();
         candidate.notes = Some("First line\nSecond line".into());
         candidate.original_release_year = Some(1980);
+        candidate.condition = Some("Very Good+".into());
         let wishlist = save_album(&mut db, path, candidate, Some(COVER.to_vec())).unwrap();
         let name = wishlist.artwork.as_deref().unwrap();
 
@@ -1141,6 +1178,11 @@ mod tests {
         drop(db);
 
         let mut db = initialize_database(path, None).unwrap();
+        let library = get_album_library(&mut db).unwrap();
+        assert_eq!(library.owned.len(), 1);
+        assert_eq!(library.owned[0].id, "owned-copy");
+        assert_eq!(library.wishlist.len(), 1);
+        assert_eq!(library.wishlist[0].id, "wish");
         assert_eq!(
             get_album(&db, "wish").unwrap().unwrap().ownership,
             Ownership::Wishlist
@@ -1153,6 +1195,7 @@ mod tests {
         assert_eq!(acquired.date_added, wishlist.date_added);
         assert_eq!(acquired.date_acquired.as_deref(), Some("2024-02-29"));
         assert_eq!(acquired.format, "Digital (FLAC)");
+        assert_eq!(acquired.condition.as_deref(), Some("Very Good+"));
         assert_eq!(acquired.notes, wishlist.notes);
         assert_eq!(acquired.release_year, wishlist.release_year);
         assert_eq!(
@@ -1161,13 +1204,29 @@ mod tests {
         );
         assert!(acquire_album(&mut db, "wish", "CD", "2025-01-01").is_err());
         assert!(update_album(&mut db, path, wishlist, None).is_err());
+        db.execute("INSERT INTO shelf_placements VALUES (1, 0, 1, 'wish')", [])
+            .unwrap();
         drop(db);
 
-        let db = initialize_database(path, None).unwrap();
-        let albums = get_albums(&db).unwrap();
-        assert_eq!(albums.len(), 1);
-        assert_eq!(albums[0].ownership, Ownership::Owned);
-        assert_eq!(albums[0].date_acquired.as_deref(), Some("2024-02-29"));
+        let mut db = initialize_database(path, None).unwrap();
+        let library = get_album_library(&mut db).unwrap();
+        assert!(library.wishlist.is_empty());
+        assert_eq!(library.owned.len(), 2);
+        let [copy, acquired] = &library.owned[..] else {
+            unreachable!()
+        };
+        assert_eq!(copy.title, acquired.title);
+        assert_eq!(copy.artist, acquired.artist);
+        assert_eq!(copy.format, acquired.format);
+        assert_ne!(copy.id, acquired.id);
+        assert_eq!(copy.condition.as_deref(), Some("Mint"));
+        assert_eq!(copy.date_acquired.as_deref(), Some("2023-01-01"));
+        assert_eq!(acquired.condition.as_deref(), Some("Very Good+"));
+        assert_eq!(acquired.date_acquired.as_deref(), Some("2024-02-29"));
+        let layout = shelves::load_shelf(&mut db, 1).unwrap();
+        assert_eq!(layout.shelf.occupied, 2);
+        assert_eq!(layout.placements[0].album_id, copy.id);
+        assert_eq!(layout.placements[1].album_id, acquired.id);
     }
 
     #[test]

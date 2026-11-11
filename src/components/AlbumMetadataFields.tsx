@@ -66,12 +66,12 @@ export function AlbumReleaseFields({ value, onChange, disabled, wishlist = false
   );
 }
 
-export function albumMetadata(value: AlbumMetadata, format: string): AlbumMetadata {
-  const vinyl = format.startsWith("Vinyl");
+export function albumMetadata(value: AlbumMetadata, format?: string): AlbumMetadata {
+  const keepVinylDetails = format === undefined || format.startsWith("Vinyl");
   return {
     condition: value.condition || null,
-    recordType: vinyl ? value.recordType || null : null,
-    discSize: vinyl ? value.discSize || null : null
+    recordType: keepVinylDetails ? value.recordType || null : null,
+    discSize: keepVinylDetails ? value.discSize || null : null
   };
 }
 
@@ -96,6 +96,7 @@ export default function AlbumMetadataFields({ format, value, onChange, disabled 
           <select id={id + key} value={value[key] ?? ""} disabled={disabled}
             onChange={event => onChange({ ...value, [key]: event.target.value || null })}>
             <option value="">Not specified</option>
+            {value[key] && !options.some(option => option === value[key]) && <option value={value[key]}>{value[key]}</option>}
             {options.map(option => <option key={option} value={option}>{key === "discSize" ? `${option}″` : option}</option>)}
           </select>
         </div>

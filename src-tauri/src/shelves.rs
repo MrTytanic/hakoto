@@ -165,7 +165,8 @@ pub enum PlacementChange {
 }
 
 const SELECT_SHELVES: &str = "SELECT id, name, rows, columns, orientation,
-    (SELECT count(*) FROM shelf_placements WHERE shelf_id = shelves.id) FROM shelves";
+    (SELECT count(*) FROM shelf_placements JOIN albums ON albums.id = shelf_placements.album_id
+     WHERE shelf_id = shelves.id AND albums.ownership = 'owned') FROM shelves";
 
 fn read_shelf(row: &Row<'_>) -> rusqlite::Result<Shelf> {
     let rows: i64 = row.get(2)?;
@@ -209,7 +210,8 @@ fn get_shelf(connection: &Connection, id: i64) -> Result<Shelf> {
 fn placements(connection: &Connection, id: i64) -> rusqlite::Result<Vec<Placement>> {
     let mut statement = connection.prepare(
         "SELECT row_index, column_index, album_id FROM shelf_placements
-         WHERE shelf_id = ?1 ORDER BY row_index, column_index",
+         JOIN albums ON albums.id = shelf_placements.album_id
+         WHERE shelf_id = ?1 AND albums.ownership = 'owned' ORDER BY row_index, column_index",
     )?;
     statement
         .query_map([id], |row| {
