@@ -102,6 +102,8 @@
   --slot-width: 41px;
   --slot-height: 108px;
   width: max-content;
+  min-width: 100%;
+  margin-inline: auto;
   border-spacing: 2px 4px;
 }
 
@@ -109,7 +111,6 @@
   box-sizing: border-box;
   width: var(--slot-width);
   min-width: var(--slot-width);
-  max-width: var(--slot-width);
   height: var(--slot-height);
   padding: 4px 0;
   border: 1px solid var(--border-subtle);

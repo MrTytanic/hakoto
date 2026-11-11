@@ -13,11 +13,15 @@ import AlbumCard from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import { ArtworkPicker } from "../components/Artwork";
 import { encodeArtwork, type ArtworkChange } from "../artwork";
+import type { UndoNotice } from "../components/toast/Toast";
+import { findDuplicateAlbum } from "../duplicateAlbums";
 import "./Collection.css";
 
 export type AlbumLoadStatus = "loading" | "ready" | "error";
 
 export type CollectionProps = {
+  onUndo?: UndoNotice;
+  shelfRevision?: number;
   profile: Profile;
   albums: Album[];
   alphabeticalDividers: boolean;
@@ -118,6 +122,7 @@ function Collection({
   const savingRef = useRef(false);
 
   const selectedAlbum = albums.find(album => album.id === selectedId);
+  const duplicate = findDuplicateAlbum(albums, { title, artist, format });
   const controlsDisabled = loadStatus !== "ready" || albums.length === 0;
   const hasFilters = Boolean(query || formats.length || sort !== "collection");
   const resultCount = visibleAlbums.length === albums.length
@@ -446,6 +451,7 @@ function Collection({
         <AlbumDetails
           key={selectedAlbum.id}
           album={selectedAlbum}
+          albums={albums}
           initialAction={albumActionMode}
           onUpdate={onUpdate}
           onDelete={onDelete}
@@ -535,6 +541,7 @@ function Collection({
                   </div>
                 </div>
 
+                {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
                 <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
                 <p className="album-date-note">Date added is recorded automatically.</p>
 

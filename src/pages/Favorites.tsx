@@ -66,6 +66,7 @@ function Favorites({ profile, albums, onUpdate, onDelete, onNotify }: FavoritesP
         <AlbumDetails
           key={selectedAlbum.id}
           album={selectedAlbum}
+          albums={albums}
           initialAction={initialAction}
           onUpdate={onUpdate}
           onDelete={onDelete}

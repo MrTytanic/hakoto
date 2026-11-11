@@ -11,7 +11,7 @@ use crate::{artwork, profile, shelves};
 
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 pub const DATABASE_NAME: &str = "hakoto.db";
-const INSERT_ALBUM: &str = "INSERT INTO albums
+pub(crate) const INSERT_ALBUM: &str = "INSERT INTO albums
     (id, title, artist, format, release_year, artwork, favorite, pinned, date_added, condition, record_type, disc_size)
     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)";
 
@@ -70,6 +70,7 @@ pub(crate) fn migrate_album_columns(connection: &Connection) -> rusqlite::Result
              ALTER TABLE albums ADD COLUMN disc_size TEXT;",
         )?;
     }
+    crate::undo::initialize(connection)?;
     Ok(())
 }
 
@@ -270,7 +271,11 @@ pub fn image_filename(connection: &Connection) -> rusqlite::Result<String> {
     })
 }
 
-fn write_album(connection: &Connection, sql: &str, album: &Album) -> rusqlite::Result<usize> {
+pub(crate) fn write_album(
+    connection: &Connection,
+    sql: &str,
+    album: &Album,
+) -> rusqlite::Result<usize> {
     connection.execute(
         sql,
         params![
@@ -321,7 +326,7 @@ fn album_artwork(connection: &Connection, id: &str) -> rusqlite::Result<Option<S
     })
 }
 
-fn cleanup(connection: &mut Connection, app_dir: &Path, name: Option<&str>) {
+pub(crate) fn cleanup(connection: &mut Connection, app_dir: &Path, name: Option<&str>) {
     let Some(name) = name.filter(|name| artwork::is_filename(name)) else {
         return;
     };
@@ -347,7 +352,7 @@ fn remove_if_unreferenced(
 ) -> Result<(), String> {
     let referenced: bool = connection
         .query_row(
-            "SELECT EXISTS (SELECT 1 FROM albums WHERE artwork = ?1)",
+            "SELECT EXISTS (SELECT 1 FROM albums WHERE artwork = ?1 UNION ALL SELECT 1 FROM undo_albums WHERE artwork = ?1)",
             [name],
             |row| row.get(0),
         )
@@ -424,6 +429,83 @@ mod tests {
             record_type: None,
             disc_size: None,
         }
+    }
+
+    #[test]
+    fn recoverable_deletion_keeps_artwork_and_restores_metadata_and_placements_after_reopen() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let saved = save_album(&mut db, path, album("recover"), Some(COVER.to_vec())).unwrap();
+        db.execute("INSERT INTO shelves (name, rows, columns, orientation) VALUES ('Shelf', 1, 2, 'vertical')", []).unwrap();
+        db.execute(
+            "INSERT INTO shelf_placements VALUES (1, 0, 0, 'recover')",
+            [],
+        )
+        .unwrap();
+        let token = crate::undo::delete(&mut db, "recover").unwrap();
+        assert!(get_albums(&db).unwrap().is_empty());
+        clean_orphaned_artwork(&mut db, path).unwrap();
+        assert!(artwork::read(path, saved.artwork.as_deref().unwrap()).is_some());
+        drop(db);
+        let mut db = initialize_database(path, None).unwrap();
+        assert_eq!(crate::undo::pending(&db).unwrap().len(), 1);
+        let restored = crate::undo::restore(&mut db, path, &token).unwrap();
+        assert_eq!(
+            serde_json::to_value(saved).unwrap(),
+            serde_json::to_value(restored).unwrap()
+        );
+        assert_eq!(shelves::load_shelf(&mut db, 1).unwrap().placements.len(), 1);
+        assert!(crate::undo::restore(&mut db, path, &token).is_err());
+        assert!(crate::undo::pending(&db).unwrap().is_empty());
+        let name = get_albums(&db).unwrap()[0].artwork.clone().unwrap();
+        save_album(&mut db, path, album("shared"), None).unwrap();
+        db.execute(
+            "UPDATE albums SET artwork = ?1 WHERE id = 'shared'",
+            [&name],
+        )
+        .unwrap();
+        let token = crate::undo::delete(&mut db, "recover").unwrap();
+        crate::undo::discard(&mut db, path, &token).unwrap();
+        assert!(artwork::read(path, &name).is_some());
+        delete_album(&mut db, path, "shared").unwrap();
+        assert_eq!(fs::read_dir(path.join("artwork")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn failed_deletion_and_conflicting_or_missing_artwork_restores_roll_back() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let saved = save_album(&mut db, path, album("recover"), Some(COVER.to_vec())).unwrap();
+        db.execute_batch("CREATE TRIGGER block_delete BEFORE DELETE ON albums BEGIN SELECT RAISE(ABORT, 'blocked'); END;").unwrap();
+        assert!(crate::undo::delete(&mut db, "recover").is_err());
+        assert!(crate::undo::pending(&db).unwrap().is_empty());
+        assert_eq!(get_albums(&db).unwrap().len(), 1);
+        db.execute_batch("DROP TRIGGER block_delete; INSERT INTO shelves (name, rows, columns, orientation) VALUES ('Shelf', 1, 1, 'vertical'); INSERT INTO shelf_placements VALUES (1, 0, 0, 'recover');").unwrap();
+        let token = crate::undo::delete(&mut db, "recover").unwrap();
+        save_album(&mut db, path, album("other"), None).unwrap();
+        db.execute("INSERT INTO shelf_placements VALUES (1, 0, 0, 'other')", [])
+            .unwrap();
+        assert!(crate::undo::restore(&mut db, path, &token).is_err());
+        assert_eq!(get_albums(&db).unwrap().len(), 1);
+        assert_eq!(crate::undo::pending(&db).unwrap().len(), 1);
+        db.execute("DELETE FROM shelf_placements", []).unwrap();
+        let name = saved.artwork.unwrap();
+        fs::remove_file(path.join("artwork").join(&name)).unwrap();
+        assert!(crate::undo::restore(&mut db, path, &token).is_err());
+        assert_eq!(get_albums(&db).unwrap().len(), 1);
+        artwork::write(path, &name, COVER).unwrap();
+        crate::undo::restore(&mut db, path, &token).unwrap();
+        let token = crate::undo::delete(&mut db, "recover").unwrap();
+        db.execute(
+            "UPDATE undo_albums SET expires = 0 WHERE token = ?1",
+            [&token],
+        )
+        .unwrap();
+        crate::undo::purge_expired(&mut db, path).unwrap();
+        assert!(crate::undo::pending(&db).unwrap().is_empty());
+        assert!(artwork::read(path, &name).is_none());
     }
 
     #[test]

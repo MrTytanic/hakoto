@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { placementIndex, saveShelfDrop } from "../src/shelfArrangement.ts";
+import { placementIndex, saveShelfDrop, undoShelfChanges } from "../src/shelfArrangement.ts";
 
 const shelf = { rows: 2, columns: 3 };
 const first = { row: 0, column: 0 };
@@ -10,6 +10,18 @@ const saved = [
   { shelfId: 1, ...first, albumId: "a" },
   { shelfId: 1, ...second, albumId: "b" }
 ];
+
+test("undo changes restore moved, swapped and removed slots without touching unchanged slots", () => {
+  const moved = [{ ...saved[0], ...empty }, saved[1]];
+  assert.deepEqual(undoShelfChanges(saved, moved), [
+    { ...first, kind: "set", albumId: "a" }, { ...empty, kind: "clear" }
+  ]);
+  const swapped = [{ ...saved[0], albumId: "b" }, { ...saved[1], albumId: "a" }];
+  assert.deepEqual(undoShelfChanges(saved, swapped), [
+    { ...first, kind: "set", albumId: "a" }, { ...second, kind: "set", albumId: "b" }
+  ]);
+  assert.deepEqual(undoShelfChanges(saved, [saved[1]]), [{ ...first, kind: "set", albumId: "a" }]);
+});
 
 test("places a collection album into an empty slot without clearing another slot", async () => {
   const committed = [...saved, { shelfId: 1, ...empty, albumId: "c" }];

@@ -5,11 +5,13 @@ import type { Album } from "../../types/Album";
 import { albumFormats } from "../../constants/albumFormats";
 import { artworkUrl, encodeArtwork, type ArtworkChange } from "../../artwork";
 import { ArtworkImage, ArtworkPicker } from "../Artwork";
+import { findDuplicateAlbum } from "../../duplicateAlbums";
 import AlbumMetadataFields, { albumMetadata } from "../AlbumMetadataFields";
 import "./AlbumDetails.css";
 
 type AlbumDetailsProps = {
   album: Album;
+  albums: readonly Album[];
   initialAction?: "edit" | "delete";
   onUpdate: (album: Album, artwork?: ArtworkChange) => Promise<void>;
   onError: (message: string) => void;
@@ -19,6 +21,7 @@ type AlbumDetailsProps = {
 
 function AlbumDetails({
   album,
+  albums,
   initialAction,
   onUpdate,
   onDelete,
@@ -38,6 +41,8 @@ function AlbumDetails({
   const [releaseYear, setReleaseYear] = useState(album.releaseYear);
 
   const [metadata, setMetadata] = useState(() => albumMetadata(album, album.format));
+
+  const duplicate = findDuplicateAlbum(albums, { id: album.id, title, artist, format });
 
   const [artwork, setArtwork] = useState<File | null>();
 
@@ -210,6 +215,7 @@ function AlbumDetails({
               disabled={isSaving}
             />
 
+            {duplicate && <p className="duplicate-warning" role="status">An album with this title, artist, and format already exists. You can still save another copy or edition.</p>}
             <AlbumMetadataFields format={format} value={metadata} onChange={setMetadata} disabled={isSaving} />
             <p className="album-date-note">Date added: {album.dateAdded ?? "Unknown"}</p>
 

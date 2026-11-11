@@ -10,6 +10,18 @@ export function placementIndex(placements: ShelfPlacement[]) {
   return new Map(placements.map(slot => [slotKey(slot), slot.albumId]));
 }
 
+export function undoShelfChanges(before: ShelfPlacement[], after: ShelfPlacement[]): ShelfPlacementChange[] {
+  const previous = placementIndex(before);
+  const current = placementIndex(after);
+  const positions = new Map([...before, ...after].map(slot => [slotKey(slot), slot]));
+  return [...positions].filter(([key]) => previous.get(key) !== current.get(key)).map(([key, slot]) => {
+    const albumId = previous.get(key);
+    return albumId === undefined
+      ? { row: slot.row, column: slot.column, kind: "clear" }
+      : { row: slot.row, column: slot.column, kind: "set", albumId };
+  });
+}
+
 export function dropKind(source: ArrangementSource, target: ShelfSlot, occupant: string | undefined) {
   if (source.slot && slotKey(source.slot) === slotKey(target)) return "origin";
   if (occupant !== undefined) return source.slot ? "swap" : "occupied";
