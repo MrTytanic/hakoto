@@ -108,6 +108,43 @@ The release profile uses `opt-level = "s"` and retains fat LTO, one codegen unit
 
 The Windows GNU release executable with the embedded frontend went from 7,771,648 bytes (7.41 MiB) at `c703112` to 5,285,376 bytes (5.04 MiB), a 32.0% reduction across the backend and profile changes. The final uncompressed Vite output was 693,637 bytes. Installer sizes, Linux builds, end-to-end startup latency, and WebView memory usage were outside this measurement. The local environment had no configured installer tools or Linux runtime.
 
+## Phase 3 verification
+
+The Windows backend harness reran the same generated fixtures against `c703112` and `f8731a5`. Each cell shows the before and after medians in milliseconds. Storage reopen and cleanup are timed separately. The check excludes WebView launch, React mount, and IPC transport.
+
+| Albums | Storage reopen | Artwork cleanup | Library read | 10×10 shelf load | Shelf swap commit |
+| ---: | ---: | ---: | ---: | ---: | ---: |
+| 100 | 3.045 → 2.917 | 2.057 → 1.058 | 0.485 → 0.413 | 0.474 → 0.421 | 6.564 → 6.413 |
+| 500 | 3.080 → 3.073 | 10.457 → 1.755 | 1.190 → 1.050 | 0.487 → 0.430 | 6.888 → 6.578 |
+| 1,000 | 3.740 → 2.999 | 31.159 → 2.459 | 2.413 → 1.872 | 0.460 → 0.488 | 6.565 → 6.607 |
+| 2,000 | 3.346 → 3.159 | 104.890 → 3.901 | 3.622 → 3.224 | 0.466 → 0.458 | 6.544 → 6.561 |
+
+The Node/Vite static markup benchmark below reran against the original baseline `1d498eb` and the final frontend using the same installed dependencies. Each cell shows before and after medians in milliseconds. Initial markup timings were mixed across fixture sizes. The earlier headless browser follow-ups measured updates to an already mounted collection and shelf.
+
+| Albums | Search derivation | Collection markup | 5×5 shelf markup | 10×10 shelf markup |
+| ---: | ---: | ---: | ---: | ---: |
+| 100 | 0.098 → 0.113 | 1.683 → 2.391 | 0.224 → 0.276 | 0.780 → 0.744 |
+| 500 | 0.584 → 0.523 | 2.201 → 1.785 | 0.170 → 0.167 | 0.483 → 0.445 |
+| 1,000 | 1.329 → 1.105 | 2.035 → 1.780 | 0.333 → 0.174 | 0.655 → 0.613 |
+| 2,000 | 3.222 → 2.719 | 1.856 → 1.740 | 0.398 → 0.327 | 0.675 → 0.754 |
+
+Headless Edge ran the production frontend with in-memory Tauri responses at all four album counts. It verified Collection navigation, next-page results, search and clear, Wishlist, Favorites, Statistics, and opening a crate and viewing its members. It also renamed a 10×10 shelf with 90 placements, drove the pointer swap handlers with synthetic events, and undid the swap. Each fixture then completed eight cycles of opening album details, encoding and saving replacement artwork through the IPC stub, closing the modal, and revisiting Shelves and Favorites. There were zero live blob URLs and no open dialog or drag preview after each cycle. Browser pointer capture was stubbed for synthetic events. The Rust tests exercised the real SQLite writes, artwork validation, replacement and cleanup.
+
+The same Edge fixture recorded four startup IPC requests on `1d498eb` and two on the final build. DevTools reported the following JavaScript heap sizes after forced garbage collection, in bytes, immediately before and after the eight cycles on Favorites. These are single runs. The final build started with less heap and ended with slightly more than the baseline at each size. The two snapshots do not establish a continuing leak.
+
+| Albums | Baseline before → after | Final before → after |
+| ---: | ---: | ---: |
+| 100 | 2,825,972 → 3,074,856 | 2,718,296 → 3,138,828 |
+| 500 | 3,058,460 → 3,246,652 | 2,901,056 → 3,301,696 |
+| 1,000 | 3,126,324 → 3,306,444 | 2,966,936 → 3,356,828 |
+| 2,000 | 3,268,484 → 3,442,060 | 3,101,012 → 3,479,036 |
+
+The Windows release file length was rechecked at 5,285,376 bytes, compared with 7,771,648 bytes for the pre-backend branch build and 7,770,624 bytes for the original baseline. Installer size, native WebView memory, and end-to-end desktop startup remain unmeasured.
+
+**Local checks.** The frontend production build and 53 frontend tests passed. Rust formatting and Clippy with warnings denied passed. The isolated Rust harness passed 54 tests covering persistence, migration, placement conflicts and Undo, artwork, CSV round trips, and backup/restore and relocation. The full Windows GNU Tauri test executable compiled and then stopped before running tests with `0xC0000139` (`STATUS_ENTRYPOINT_NOT_FOUND`). This remains environment-blocked. No loader troubleshooting or software installation was performed.
+
+**CI.** GitHub Actions status is tracked on the pull request separately from these local results.
+
 ### Baseline commands
 
 Run from the repository root with the locked frontend and Rust dependencies available. For the build sizes, use `npm run build`, then run `cargo build --locked --offline --bin hakoto` and `cargo build --locked --offline --release --features tauri/custom-protocol` from `src-tauri`. Inspect the executables with `objdump -h` and use file lengths for artifact sizes.
