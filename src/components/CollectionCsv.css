@@ -1,0 +1,9 @@
+.csv-preview { max-width: 760px; }
+.csv-preview-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; margin-block: 12px; }
+.csv-preview-table { max-height: 40vh; overflow: auto; }
+.csv-preview-table:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.csv-preview-table table { width: 100%; border-collapse: collapse; text-align: start; }
+.csv-preview-table :is(th, td) { padding: 8px; border-bottom: 1px solid var(--border-subtle); overflow-wrap: anywhere; vertical-align: top; }
+.csv-preview-table thead { position: sticky; top: 0; background: var(--surface); }
+.csv-duplicate-choice { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.csv-duplicate-choice select { border: 1px solid var(--border); border-radius: 5px; background: var(--canvas); color: var(--text); font: inherit; }

@@ -8,23 +8,26 @@
     <script>
       // Set the palette before styles load and React mounts.
       try {
-        const theme = localStorage.getItem("hakoto.theme");
+        let restored;
+        try {
+          restored = JSON.parse(localStorage.getItem("hakoto.restoredPreferences") ?? "null");
+        } catch {
+          // Individual preferences still work if the restore record is unavailable.
+        }
+        const read = key => restored?.values?.[key] ?? localStorage.getItem(key);
+        const theme = read("hakoto.theme");
         if (theme === "light" || (theme === "system" && !matchMedia("(prefers-color-scheme: dark)").matches)) {
           document.documentElement.dataset.theme = "light";
         }
-      } catch {
-        // Keep the default dark palette when storage is unavailable.
-      }
-      try {
-        const scale = localStorage.getItem("hakoto.textScale");
+        const scale = read("hakoto.textScale");
         document.documentElement.dataset.textScale = ["90", "100", "115", "130"].includes(scale) ? scale : "100";
-        document.documentElement.dataset.animations = localStorage.getItem("hakoto.animations") === "off" ? "off" : "on";
-        const duration = localStorage.getItem("hakoto.animationDuration");
+        document.documentElement.dataset.animations = read("hakoto.animations") === "off" ? "off" : "on";
+        const duration = read("hakoto.animationDuration");
         if (["100", "150", "200", "250", "300", "350", "400", "450", "500"].includes(duration)) {
           document.documentElement.style.setProperty("--animation-duration", duration + "ms");
         }
       } catch {
-        // Use default text size and respect device motion preferences.
+        // Use default appearance when preferences are unavailable.
       }
     </script>
     <link rel="stylesheet" href="/src/theme.css" />

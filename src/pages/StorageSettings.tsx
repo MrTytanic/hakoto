@@ -1,5 +1,8 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import CollectionCsv from "../components/CollectionCsv";
+import CollectionBackup from "../components/CollectionBackup";
+import type { Album } from "../types/Album";
 
 type StorageInfo = {
   databasePath: string;
@@ -24,7 +27,10 @@ function formatSize(bytes: number) {
   return `${sizeFormat.format(bytes)} ${units[unit]}`;
 }
 
-export default function StorageSettings({ profilePicture }: { profilePicture: string | null }) {
+export default function StorageSettings({ profilePicture, onAlbumsImported }: {
+  profilePicture: string | null;
+  onAlbumsImported: (albums: Album[]) => void;
+}) {
   const [info, setInfo] = useState<StorageInfo>();
   const [error, setError] = useState("");
   const [status, setStatus] = useState("");
@@ -107,6 +113,13 @@ export default function StorageSettings({ profilePicture }: { profilePicture: st
             <code>{info.artworkPath}</code>
             <button type="button" className="settings-upload" disabled={busy} onClick={() => openLocation(true)}>Open artwork directory</button>
           </div>
+
+          <CollectionCsv disabled={busy} onImported={albums => {
+            onAlbumsImported(albums);
+            setAttempt(value => value + 1);
+          }} />
+
+          <CollectionBackup disabled={busy} />
 
           <section className="storage-advanced" aria-labelledby="storage-advanced-title">
             <h3 id="storage-advanced-title">Advanced storage actions</h3>

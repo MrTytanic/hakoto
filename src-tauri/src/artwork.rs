@@ -4,7 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const MAX_BYTES: usize = 1024 * 1024;
+pub(crate) const MAX_BYTES: usize = 1024 * 1024;
 const MAX_EDGE: u32 = 500;
 
 // A generated 2 × 2 WebP used by the persistence tests.

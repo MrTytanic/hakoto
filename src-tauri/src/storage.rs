@@ -20,7 +20,7 @@ use crate::{
 const LOCATION_FILE: &str = "storage-location.json";
 const FOLDER_PREFIX: &str = "hakoto-collection-";
 pub const ARTWORK_DIRECTORY: &str = "artwork";
-const IMAGE_FOLDERS: [&str; 2] = [ARTWORK_DIRECTORY, profile::IMAGE_DIRECTORY];
+pub(crate) const IMAGE_FOLDERS: [&str; 2] = [ARTWORK_DIRECTORY, profile::IMAGE_DIRECTORY];
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
 #[derive(Deserialize, Serialize)]
@@ -91,6 +91,47 @@ impl Storage {
         &self.default_dir
     }
 
+    pub fn previous_location(&self) -> Option<&Path> {
+        self.previous_location.as_deref()
+    }
+
+    pub fn activate_restored(&mut self, staging: tempfile::TempDir) -> Result<()> {
+        let directory = staging.path();
+        let connection = open_saved_collection(directory)?;
+        verify_references(&connection, directory)?;
+        OpenOptions::new()
+            .write(true)
+            .open(directory.join(DATABASE_NAME))?
+            .sync_all()?;
+        sync_directory(directory)?;
+        sync_directory(&self.default_dir)?;
+        self.commit_location(staging, connection)
+    }
+
+    fn commit_location(
+        &mut self,
+        staging: tempfile::TempDir,
+        connection: Connection,
+    ) -> Result<()> {
+        let location = Location {
+            directory: staging.path().to_path_buf(),
+            previous: self.directory.clone(),
+        };
+        if let Err(error) = save_location(
+            &self.default_dir,
+            &location,
+            self.previous_location.is_some(),
+        ) {
+            drop(connection);
+            return Err(error);
+        }
+        // Once the pointer is committed the staged collection becomes active and must be kept.
+        self.directory = staging.keep();
+        self.previous_location = Some(location.previous);
+        self.connection = connection;
+        Ok(())
+    }
+
     pub fn info(&self) -> Result<StorageInfo> {
         let database_path = self.directory.join(DATABASE_NAME);
         let mut database_bytes = checked_file(&database_path)?.len();
@@ -157,32 +198,7 @@ impl Storage {
         let target = staging.path();
 
         let target_db = target.join(DATABASE_NAME);
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .open(&target_db)?;
-        let mut backup =
-            Connection::open_with_flags(&target_db, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
-        if !matches!(
-            Backup::new(&self.connection, &mut backup)?.step(-1)?,
-            StepResult::Done
-        ) {
-            return Err("SQLite could not complete the backup. Close other programs using the database and try again.".into());
-        }
-        let mode: String =
-            backup.query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))?;
-        if mode != "delete" {
-            return Err(
-                "The database copy could not be finalized without a write-ahead log.".into(),
-            );
-        }
-        let integrity: String = backup.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
-        if integrity != "ok" {
-            return Err(
-                format!("The database copy failed its integrity check: {integrity}").into(),
-            );
-        }
-        backup.close().map_err(|(_, error)| error)?;
+        snapshot_database(&self.connection, &target_db)?;
         let connection = open_saved_collection(target)?;
         OpenOptions::new()
             .write(true)
@@ -205,22 +221,47 @@ impl Storage {
         sync_directory(target)?;
         sync_directory(&parent)?;
 
-        let location = Location {
-            directory: target.to_path_buf(),
-            previous: self.directory.clone(),
-        };
-        save_location(
-            &self.default_dir,
-            &location,
-            self.previous_location.is_some(),
-        )?;
-        // The pointer is committed. From here, do not remove the new collection or return an error.
-        self.directory = staging.keep();
-        self.previous_location = Some(location.previous);
+        self.commit_location(staging, connection)?;
         drop(source_lock);
-        self.connection = connection;
         Ok(())
     }
+}
+
+pub(crate) fn snapshot_database(source: &Connection, target: &Path) -> Result<()> {
+    OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(target)?;
+    let mut backup = Connection::open_with_flags(target, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    if !matches!(
+        Backup::new(source, &mut backup)?.step(-1)?,
+        StepResult::Done
+    ) {
+        return Err("SQLite could not complete the backup. Close other programs using the database and try again.".into());
+    }
+    let mode: String = backup.query_row("PRAGMA journal_mode = DELETE", [], |row| row.get(0))?;
+    if mode != "delete" {
+        return Err("The database copy could not be finalized without a write-ahead log.".into());
+    }
+    verify_database_integrity(&backup)?;
+    backup.close().map_err(|(_, error)| error)?;
+    Ok(())
+}
+
+pub(crate) fn verify_database_integrity(connection: &Connection) -> Result<()> {
+    let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
+    if integrity != "ok" {
+        return Err(format!("The database failed its integrity check: {integrity}").into());
+    }
+    if connection
+        .prepare("PRAGMA foreign_key_check")?
+        .query([])?
+        .next()?
+        .is_some()
+    {
+        return Err("The database contains invalid collection references.".into());
+    }
+    Ok(())
 }
 
 fn checked_directory(path: &Path) -> Result<PathBuf> {
@@ -237,7 +278,7 @@ fn checked_directory(path: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
-fn checked_file(path: &Path) -> io::Result<fs::Metadata> {
+pub(crate) fn checked_file(path: &Path) -> io::Result<fs::Metadata> {
     let metadata = fs::symlink_metadata(path)?;
     if !metadata.file_type().is_file() {
         return Err(io::Error::other(format!(
@@ -294,6 +335,7 @@ fn open_saved_collection(directory: &Path) -> Result<Connection> {
         return Err("The saved database is empty.".into());
     }
     let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    connection.pragma_update(None, "trusted_schema", false)?;
     connection
         .prepare("SELECT id, title, artist, format, release_year, artwork, favorite FROM albums")?;
     profile::get(&connection)?;
@@ -327,7 +369,7 @@ fn check_database_files(directory: &Path, required: bool) -> io::Result<()> {
     Ok(())
 }
 
-fn image_files(directory: &Path, folder: &str) -> Result<Vec<(String, u64)>> {
+pub(crate) fn image_files(directory: &Path, folder: &str) -> Result<Vec<(String, u64)>> {
     match fs::symlink_metadata(directory.join(folder)) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
         result => {
@@ -377,7 +419,7 @@ fn check_space(source: &Connection, directory: &Path, parent: &Path) -> Result<(
     Ok(())
 }
 
-fn verify_references(connection: &Connection, directory: &Path) -> Result<()> {
+pub(crate) fn verify_references(connection: &Connection, directory: &Path) -> Result<()> {
     let mut statement = connection.prepare(
         "SELECT DISTINCT artwork, 'artwork' FROM albums WHERE artwork IS NOT NULL
          UNION ALL SELECT picture, 'profile-images' FROM profile WHERE picture IS NOT NULL
@@ -388,13 +430,13 @@ fn verify_references(connection: &Connection, directory: &Path) -> Result<()> {
         let name: String = row.get(0)?;
         let folder: String = row.get(1)?;
         artwork::read_checked_in(directory, &folder, &name).map_err(|error| {
-            format!("The collection references an unavailable image ({folder}/{name}): {error}. Repair or remove the reference before moving storage.")
+            format!("The collection references an unavailable image ({folder}/{name}): {error}. Repair or remove the reference and try again.")
         })?;
     }
     Ok(())
 }
 
-fn sync_directory(path: &Path) -> io::Result<()> {
+pub(crate) fn sync_directory(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     File::open(path)?.sync_all()?;
     #[cfg(not(unix))]

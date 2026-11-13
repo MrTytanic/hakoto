@@ -1,8 +1,19 @@
+const RESTORED_PREFERENCES = "hakoto.restoredPreferences";
+
+function readRestoredPreferences(): { restoreId: string; values: Record<string, string> } | null {
+  try {
+    return JSON.parse(localStorage.getItem(RESTORED_PREFERENCES) ?? "null");
+  } catch {
+    return null;
+  }
+}
+
 function createPreference<const Value extends string>(key: string, values: readonly Value[], fallback: NoInfer<Value>) {
   return {
+    key,
     read(): Value {
       try {
-        const stored = localStorage.getItem(key);
+        const stored = readRestoredPreferences()?.values?.[key] ?? localStorage.getItem(key);
         return values.find(value => value === stored) ?? fallback;
       } catch {
         return fallback;
@@ -10,7 +21,13 @@ function createPreference<const Value extends string>(key: string, values: reado
     },
     write(value: Value) {
       try {
-        localStorage.setItem(key, value);
+        const restored = readRestoredPreferences();
+        if (restored?.values) {
+          restored.values[key] = value;
+          localStorage.setItem(RESTORED_PREFERENCES, JSON.stringify(restored));
+        } else {
+          localStorage.setItem(key, value);
+        }
       } catch {
         // The preference can still be applied for this session.
       }
@@ -28,6 +45,30 @@ export const textScalePreference = createPreference("hakoto.textScale", ["90", "
 export const animationsPreference = createPreference("hakoto.animations", ["on", "off"], "on");
 export const animationDurations = ["100", "150", "200", "250", "300", "350", "400", "450", "500"] as const;
 export const animationDurationPreference = createPreference("hakoto.animationDuration", animationDurations, "300");
+
+const backupPreferences = {
+  theme: themePreference,
+  alphabeticalDividers: alphabeticalDividersPreference,
+  collectionView: collectionViewPreference,
+  collectionPageSize: collectionPageSizePreference,
+  textScale: textScalePreference,
+  animations: animationsPreference,
+  animationDuration: animationDurationPreference
+};
+
+export type BackupSettings = { [Key in keyof typeof backupPreferences]: ReturnType<(typeof backupPreferences)[Key]["read"]> };
+
+export function readBackupSettings(): BackupSettings {
+  return Object.fromEntries(Object.entries(backupPreferences).map(([name, preference]) => [name, preference.read()])) as BackupSettings;
+}
+
+export function applyBackupSettings(restoreId: string, settings: BackupSettings) {
+  if (readRestoredPreferences()?.restoreId === restoreId) return;
+  const names = Object.keys(backupPreferences) as (keyof BackupSettings)[];
+  const values = Object.fromEntries(names.map(name => [backupPreferences[name].key, settings[name]]));
+  // One write keeps the previous preferences intact if browser storage rejects the update.
+  localStorage.setItem(RESTORED_PREFERENCES, JSON.stringify({ restoreId, values }));
+}
 export type AnimationDurationPreference = ReturnType<typeof animationDurationPreference.read>;
 export type TextScalePreference = ReturnType<typeof textScalePreference.read>;
 export type ThemePreference = ReturnType<typeof themePreference.read>;
