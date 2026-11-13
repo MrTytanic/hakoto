@@ -1,5 +1,4 @@
 use std::{
-    fs,
     path::PathBuf,
     sync::{
         Mutex,
@@ -280,6 +279,20 @@ fn set_profile_picture(
     })
 }
 
+fn file_operation_error(error: Box<dyn std::error::Error>, message: &str) -> String {
+    if error.is::<std::io::Error>()
+        || error.is::<tempfile::PersistError>()
+        || error.is::<rusqlite::Error>()
+        || error.is::<serde_json::Error>()
+        || error.is::<zip::result::ZipError>()
+        || error.is::<std::str::Utf8Error>()
+    {
+        return message.into();
+    }
+    // Filesystem helpers use explicit, path-free messages for validation failures.
+    error.to_string()
+}
+
 #[tauri::command]
 async fn export_collection_csv(
     app: AppHandle,
@@ -296,7 +309,7 @@ async fn export_collection_csv(
         else {
             return Ok(None);
         };
-        let path = path.into_path().map_err(|error| error.to_string())?;
+        let path = path.into_path().map_err(|_| "Choose a local CSV file.")?;
         let library = app.state::<DatabaseState>().with_storage(|storage| {
             database::get_album_library(&mut storage.connection).map_err(database::database_error)
         })?;
@@ -319,7 +332,7 @@ async fn preview_collection_csv(app: AppHandle) -> Result<Option<CsvPreview>, St
         else {
             return Ok(None);
         };
-        let path = path.into_path().map_err(|error| error.to_string())?;
+        let path = path.into_path().map_err(|_| "Choose a local CSV file.")?;
         let text = collection_csv::read(&path)?;
         let state = app.state::<DatabaseState>();
         let (directory, prepared) = state.with_storage(|storage| {
@@ -401,10 +414,10 @@ async fn export_backup(app: AppHandle, settings: backup::BackupSettings) -> Resu
         else {
             return Ok(false);
         };
-        let path = file.into_path().map_err(|error| error.to_string())?;
+        let path = file.into_path().map_err(|_| "Choose a local backup file.")?;
         app.state::<DatabaseState>().with_storage(|storage| {
             backup::export(storage, &path, &settings)
-                .map_err(|error| format!("Could not create the backup: {error}"))
+                .map_err(|error| file_operation_error(error, "Could not create the backup. Check collection access, destination permissions, and free space."))
         })?;
         Ok(true)
     })
@@ -424,7 +437,7 @@ async fn preview_backup_restore(app: AppHandle) -> Result<Option<backup::Restore
         else {
             return Ok(None);
         };
-        let path = file.into_path().map_err(|error| error.to_string())?;
+        let path = file.into_path().map_err(|_| "Choose a local backup file.")?;
         let state = app.state::<DatabaseState>();
         let (active_directory, parent) = state.with_storage(|storage| {
             Ok((
@@ -432,8 +445,9 @@ async fn preview_backup_restore(app: AppHandle) -> Result<Option<backup::Restore
                 storage.default_dir().to_path_buf(),
             ))
         })?;
-        let staged = backup::stage(&path, &parent)
-            .map_err(|error| format!("Could not verify the backup: {error}"))?;
+        let staged = backup::stage(&path, &parent).map_err(|error| {
+            file_operation_error(error, "Could not verify the backup. Check that the file is accessible and is a valid Hakoto backup.")
+        })?;
         let summary = staged.summary.clone();
         *state
             .backup_restore
@@ -480,7 +494,8 @@ async fn confirm_backup_restore(app: AppHandle, token: String) -> Result<(), Str
         state.with_storage(|storage| {
             if storage.directory != preview.active_directory { return Err("The storage location changed. Choose the backup again before restoring.".into()); }
             storage.activate_restored(preview.staged.staging).map_err(|error| {
-                format!("Could not restore the backup: {error}. Your original collection is still active.")
+                let reason = file_operation_error(error, "Could not activate the staged backup. Check storage permissions and free space.");
+                format!("{reason} Your original collection is still active.")
             })
         })
     }).await.map_err(|error| error.to_string())?
@@ -491,20 +506,25 @@ fn pending_backup_settings(
     state: State<'_, DatabaseState>,
 ) -> Result<Option<backup::PendingSettings>, String> {
     state.with_storage(|storage| {
-        backup::pending_settings(storage).map_err(|error| error.to_string())
+        backup::pending_settings(storage).map_err(|_| "Could not read restored preferences.".into())
     })
 }
 
 #[tauri::command]
 fn finish_backup_settings(state: State<'_, DatabaseState>, token: String) -> Result<(), String> {
     state.with_storage(|storage| {
-        backup::finish_settings(storage, &token).map_err(|error| error.to_string())
+        backup::finish_settings(storage, &token)
+            .map_err(|_| "Could not finish restoring preferences.".into())
     })
 }
 
 #[tauri::command]
 fn get_storage_info(state: State<'_, DatabaseState>) -> Result<storage::StorageInfo, String> {
-    state.with_storage(|storage| storage.info().map_err(|error| error.to_string()))
+    state.with_storage(|storage| {
+        storage
+            .info()
+            .map_err(|_| "Could not read collection storage information.".into())
+    })
 }
 
 #[tauri::command]
@@ -515,37 +535,55 @@ fn open_storage_location(
 ) -> Result<(), String> {
     let directory = state.with_storage(|storage| Ok(storage.directory.clone()))?;
     if artwork {
-        let path = artwork::directory(&directory).map_err(|error| error.to_string())?;
+        let path =
+            artwork::directory(&directory).map_err(|_| "The artwork folder is unavailable.")?;
         app.opener()
             .open_path(dunce::simplified(&path).to_string_lossy(), None::<&str>)
     } else {
+        storage::checked_file(&directory.join(database::DATABASE_NAME))
+            .map_err(|_| "The collection database file is unavailable.")?;
         app.opener()
             .reveal_item_in_dir(directory.join(database::DATABASE_NAME))
     }
-    .map_err(|error| error.to_string())
+    .map_err(|_| "Could not open the collection location in the file explorer.".into())
 }
 
 #[tauri::command]
 async fn relocate_storage(app: AppHandle, restore_default: bool) -> Result<bool, String> {
     tauri::async_runtime::spawn_blocking(move || {
         let state = app.state::<DatabaseState>();
-        let _relocation = state.relocation.try_lock().map_err(|_| "A storage move is already in progress.")?;
+        let _relocation = state
+            .relocation
+            .try_lock()
+            .map_err(|_| "A storage move is already in progress.")?;
         let destination = if restore_default {
             state.with_storage(|storage| Ok(storage.default_dir().to_path_buf()))?
         } else {
-            let Some(folder) = app.dialog().file().set_title("Choose a folder for Hakoto collection storage").blocking_pick_folder() else {
+            let Some(folder) = app
+                .dialog()
+                .file()
+                .set_title("Choose a folder for Hakoto collection storage")
+                .blocking_pick_folder()
+            else {
                 return Ok(false);
             };
-            folder.into_path().map_err(|error| error.to_string())?
+            folder
+                .into_path()
+                .map_err(|_| "Choose a local storage folder.")?
         };
         state.with_storage(|storage| {
-            storage.relocate(&destination).map_err(|error| format!(
-                "Could not move the collection to {}: {error}. The original collection is still active at {}.",
-                destination.display(), storage.directory.display(),
-            ))?;
+            storage.relocate(&destination).map_err(|error| {
+                let reason = file_operation_error(
+                    error,
+                    "Could not move the collection. Check destination permissions and free space.",
+                );
+                format!("{reason} Your original collection is still active.")
+            })?;
             Ok(true)
         })
-    }).await.map_err(|error| error.to_string())?
+    })
+    .await
+    .map_err(|error| error.to_string())?
 }
 
 fn serve_image(
@@ -650,7 +688,7 @@ pub fn run() {
             let storage = storage::Storage::open(&app_dir, legacy_dir.as_deref())
                 .map(|mut storage| {
                     if let Err(error) =
-                        fs::create_dir_all(storage.directory.join(storage::ARTWORK_DIRECTORY))
+                        artwork::ensure_directory(&storage.directory, storage::ARTWORK_DIRECTORY)
                     {
                         eprintln!("Could not create artwork directory: {error}");
                     }

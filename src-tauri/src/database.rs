@@ -54,7 +54,13 @@ pub fn initialize_database(
     app_dir: &Path,
     legacy_dir: Option<&Path>,
 ) -> Result<Connection, Box<dyn Error>> {
-    let mut connection = Connection::open(app_dir.join(DATABASE_NAME))?;
+    let mut connection = Connection::open_with_flags(
+        app_dir.join(DATABASE_NAME),
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    connection.pragma_update(None, "trusted_schema", false)?;
     connection.pragma_update(None, "foreign_keys", true)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let already_initialized: bool = transaction.query_row(
@@ -143,7 +149,11 @@ fn import_legacy_albums(
         return Ok(());
     }
 
-    let mut source = Connection::open_with_flags(legacy_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut source = Connection::open_with_flags(
+        legacy_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    source.pragma_update(None, "trusted_schema", false)?;
     let snapshot = source.transaction()?;
     let mut imported_artwork = HashMap::new();
     for mut album in get_albums(&snapshot)? {
@@ -303,6 +313,14 @@ fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
         notes: row.get(14)?,
         ownership: row.get(15)?,
     })
+}
+
+pub(crate) fn verify_album_rows(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare(&format!("SELECT {ALBUM_COLUMNS} FROM albums"))?;
+    for album in statement.query_map([], read_album)? {
+        album?;
+    }
+    Ok(())
 }
 
 pub fn get_album(connection: &Connection, id: &str) -> rusqlite::Result<Option<Album>> {
@@ -567,11 +585,12 @@ fn remove_if_unreferenced(
         )
         .map_err(|error| error.to_string())?;
 
-    if !referenced
-        && let Err(error) = fs::remove_file(directory.join(name))
-        && error.kind() != io::ErrorKind::NotFound
-    {
-        return Err(error.to_string());
+    let path = directory.join(name);
+    if !referenced && crate::storage::checked_file(&path).is_ok() {
+        match fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.to_string()),
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -1684,6 +1703,14 @@ mod tests {
         );
 
         let corrupt = app_dir.join("artwork").join(name);
+        fs::File::create(&corrupt)
+            .unwrap()
+            .set_len(artwork::MAX_BYTES as u64 + 1)
+            .unwrap();
+        assert_eq!(
+            artwork::read_checked(app_dir, name).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         fs::write(&corrupt, b"invalid artwork").unwrap();
         assert_eq!(
             artwork::read_checked(app_dir, name).unwrap_err().kind(),
@@ -1691,5 +1718,32 @@ mod tests {
         );
         assert!(artwork::write(app_dir, name, COVER).is_err());
         assert_eq!(fs::read(corrupt).unwrap(), b"invalid artwork");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_image_reads_writes_and_cleanup_leave_link_targets_untouched() {
+        use std::os::unix::fs::symlink;
+
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let mut db = initialize_database(app_dir, None).unwrap();
+        let outside = app_dir.join("outside");
+        fs::create_dir(&outside).unwrap();
+        let name = "0123456789abcdef0123456789abcdef.webp";
+        fs::write(outside.join(name), COVER).unwrap();
+        let artwork_dir = app_dir.join("artwork");
+        symlink(&outside, &artwork_dir).unwrap();
+        assert!(artwork::read_checked(app_dir, name).is_err());
+        assert!(artwork::write(app_dir, name, COVER).is_err());
+        assert!(clean_orphaned_artwork(&mut db, app_dir).is_err());
+
+        fs::create_dir(app_dir.join(profile::IMAGE_DIRECTORY)).unwrap();
+        let picture = app_dir.join(profile::IMAGE_DIRECTORY).join(name);
+        symlink(outside.join(name), &picture).unwrap();
+        assert!(profile::read_image(app_dir, name).is_none());
+        profile::clean_orphaned_images(&mut db, app_dir).unwrap();
+        assert!(picture.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(fs::read(outside.join(name)).unwrap(), COVER);
     }
 }

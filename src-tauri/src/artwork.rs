@@ -25,12 +25,33 @@ pub fn directory(app_dir: &Path) -> io::Result<PathBuf> {
 }
 
 pub fn directory_in(app_dir: &Path, folder: &str) -> io::Result<PathBuf> {
-    let path = app_dir.canonicalize()?.join(folder);
-    if path.canonicalize()? == path && path.is_dir() {
+    let path = collection_directory(app_dir)?.join(folder);
+    let metadata = path.symlink_metadata()?;
+    if metadata.is_dir()
+        && !crate::storage::is_redirected(&metadata)
+        && path.canonicalize()? == path
+    {
         Ok(path)
     } else {
         Err(io::Error::other("Invalid artwork directory"))
     }
+}
+
+fn collection_directory(app_dir: &Path) -> io::Result<PathBuf> {
+    let metadata = app_dir.symlink_metadata()?;
+    if !metadata.is_dir() || crate::storage::is_redirected(&metadata) {
+        return Err(io::Error::other("Invalid collection directory"));
+    }
+    app_dir.canonicalize()
+}
+
+pub fn ensure_directory(app_dir: &Path, folder: &str) -> io::Result<PathBuf> {
+    match fs::create_dir(collection_directory(app_dir)?.join(folder)) {
+        Ok(()) => {}
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
+        Err(error) => return Err(error),
+    }
+    directory_in(app_dir, folder)
 }
 
 pub fn validate(bytes: &[u8]) -> bool {
@@ -101,8 +122,7 @@ pub fn write_in(app_dir: &Path, folder: &str, name: &str, bytes: &[u8]) -> io::R
         return Err(io::Error::other("Invalid WebP artwork"));
     }
 
-    fs::create_dir_all(app_dir.join(folder))?;
-    let directory = directory_in(app_dir, folder)?;
+    let directory = ensure_directory(app_dir, folder)?;
     let path = directory.join(name);
     let mut file = OpenOptions::new()
         .write(true)
@@ -135,10 +155,20 @@ pub fn read_checked_in(app_dir: &Path, folder: &str, name: &str) -> io::Result<V
     }
 
     let path = directory_in(app_dir, folder)?.join(name);
-    if !path.symlink_metadata()?.is_file() || path.canonicalize()? != path {
+    let metadata = path.symlink_metadata()?;
+    if !metadata.is_file()
+        || crate::storage::is_redirected(&metadata)
+        || path.canonicalize()? != path
+    {
         return Err(io::Error::new(
             io::ErrorKind::InvalidData,
             "Invalid artwork path",
+        ));
+    }
+    if metadata.len() > MAX_BYTES as u64 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "WebP artwork is too large",
         ));
     }
 

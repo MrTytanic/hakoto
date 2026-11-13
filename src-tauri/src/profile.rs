@@ -116,10 +116,10 @@ pub fn clean_orphaned_images(
     let current = get(&transaction)?.profile_picture;
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
-        if entry.file_type()?.is_file()
-            && let Some(name) = entry.file_name().to_str()
+        if let Some(name) = entry.file_name().to_str()
             && artwork::is_filename(name)
             && current.as_deref() != Some(name)
+            && crate::storage::checked_file(&entry.path()).is_ok()
             && let Err(error) = fs::remove_file(entry.path())
             && error.kind() != io::ErrorKind::NotFound
         {

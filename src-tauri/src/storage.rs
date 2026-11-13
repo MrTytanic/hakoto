@@ -1,7 +1,7 @@
 use std::{
     error::Error,
     fs::{self, File, OpenOptions},
-    io::{self, Write},
+    io::{self, Read, Write},
     path::{Component, Path, PathBuf},
 };
 
@@ -18,6 +18,7 @@ use crate::{
 };
 
 const LOCATION_FILE: &str = "storage-location.json";
+const MAX_LOCATION_BYTES: u64 = 128 * 1024;
 const FOLDER_PREFIX: &str = "hakoto-collection-";
 pub const ARTWORK_DIRECTORY: &str = "artwork";
 pub(crate) const IMAGE_FOLDERS: [&str; 2] = [ARTWORK_DIRECTORY, profile::IMAGE_DIRECTORY];
@@ -55,12 +56,18 @@ impl Storage {
     pub fn open(default_dir: &Path, legacy_dir: Option<&Path>) -> Result<Self> {
         fs::create_dir_all(default_dir)?;
         let default_dir = dunce::canonicalize(default_dir)?;
+        let lock_path = default_dir.join("storage.lock");
+        match checked_file(&lock_path) {
+            Ok(_) => {}
+            Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+            Err(error) => return Err(error.into()),
+        }
         let lock = OpenOptions::new()
             .read(true)
             .write(true)
             .create(true)
             .truncate(false)
-            .open(default_dir.join("storage.lock"))?;
+            .open(lock_path)?;
         lock.try_lock().map_err(|error| {
             format!(
                 "Could not lock Hakoto storage. Close any other Hakoto window and restart: {error}"
@@ -188,7 +195,7 @@ impl Storage {
         // Reserve the writer on a second connection and copy from the active one.
         let mut writer = Connection::open_with_flags(
             self.directory.join(DATABASE_NAME),
-            OpenFlags::SQLITE_OPEN_READ_WRITE,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
         )?;
         let source_lock = writer.transaction_with_behavior(TransactionBehavior::Immediate)?;
         check_space(&self.connection, &self.directory, &parent)?;
@@ -232,7 +239,10 @@ pub(crate) fn snapshot_database(source: &Connection, target: &Path) -> Result<()
         .write(true)
         .create_new(true)
         .open(target)?;
-    let mut backup = Connection::open_with_flags(target, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let mut backup = Connection::open_with_flags(
+        target,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
     if !matches!(
         Backup::new(source, &mut backup)?.step(-1)?,
         StepResult::Done
@@ -251,7 +261,7 @@ pub(crate) fn snapshot_database(source: &Connection, target: &Path) -> Result<()
 pub(crate) fn verify_database_integrity(connection: &Connection) -> Result<()> {
     let integrity: String = connection.query_row("PRAGMA integrity_check", [], |row| row.get(0))?;
     if integrity != "ok" {
-        return Err(format!("The database failed its integrity check: {integrity}").into());
+        return Err("The database failed its integrity check.".into());
     }
     if connection
         .prepare("PRAGMA foreign_key_check")?
@@ -265,11 +275,12 @@ pub(crate) fn verify_database_integrity(connection: &Connection) -> Result<()> {
 }
 
 fn checked_directory(path: &Path) -> Result<PathBuf> {
-    if !path.is_absolute() || path.components().any(|part| part == Component::ParentDir) {
-        return Err("Choose an absolute directory without parent traversal.".into());
-    }
-    if !fs::symlink_metadata(path)?.file_type().is_dir() {
-        return Err("The selected path must be a directory, not a symbolic link.".into());
+    validate_selected_path(path)?;
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_dir() || is_redirected(&metadata) {
+        return Err(
+            "Choose a regular directory without a link or junction at its final location.".into(),
+        );
     }
     let canonical = dunce::canonicalize(path)?;
     if canonical.to_str().is_none() {
@@ -278,13 +289,53 @@ fn checked_directory(path: &Path) -> Result<PathBuf> {
     Ok(canonical)
 }
 
+pub(crate) fn is_redirected(metadata: &fs::Metadata) -> bool {
+    #[cfg(windows)]
+    {
+        use std::os::windows::fs::MetadataExt;
+        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
+        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
+    }
+    #[cfg(not(windows))]
+    {
+        metadata.file_type().is_symlink()
+    }
+}
+
+pub(crate) fn export_path(path: &Path) -> std::result::Result<PathBuf, String> {
+    validate_selected_path(path)?;
+    let filename = path
+        .file_name()
+        .ok_or("Choose a filename for the export.")?;
+    let parent = path.parent().ok_or("Choose a folder for the export.")?;
+    let target = checked_directory(parent)
+        .map_err(|_| "Choose an accessible export folder.")?
+        .join(filename);
+    Ok(target)
+}
+
+pub(crate) fn validate_selected_path(path: &Path) -> std::result::Result<(), String> {
+    if !path.is_absolute() || path.components().any(|part| part == Component::ParentDir) {
+        return Err("Choose an absolute path without parent traversal.".into());
+    }
+    #[cfg(windows)]
+    if path.components().any(|part| match part {
+        Component::Prefix(prefix) => matches!(
+            prefix.kind(),
+            std::path::Prefix::DeviceNS(_) | std::path::Prefix::Verbatim(_)
+        ),
+        Component::Normal(name) => name.to_string_lossy().contains(':'),
+        _ => false,
+    }) {
+        return Err("Choose a regular path without device names or alternate data streams.".into());
+    }
+    Ok(())
+}
+
 pub(crate) fn checked_file(path: &Path) -> io::Result<fs::Metadata> {
     let metadata = fs::symlink_metadata(path)?;
-    if !metadata.file_type().is_file() {
-        return Err(io::Error::other(format!(
-            "Expected a regular file at {}.",
-            path.display()
-        )));
+    if !metadata.is_file() || is_redirected(&metadata) {
+        return Err(io::Error::other("Expected a regular file without links."));
     }
     Ok(metadata)
 }
@@ -292,9 +343,15 @@ pub(crate) fn checked_file(path: &Path) -> io::Result<fs::Metadata> {
 fn read_location(default_dir: &Path) -> Result<Option<Location>> {
     let path = default_dir.join(LOCATION_FILE);
     match checked_file(&path) {
-        Ok(_) => serde_json::from_reader::<_, Location>(File::open(&path)?).map(Some).map_err(|error| {
-            format!("Could not read the saved storage location at {}: {error}. Restore the location file before restarting Hakoto.", path.display()).into()
-        }),
+        Ok(metadata) if metadata.len() <= MAX_LOCATION_BYTES => {
+            serde_json::from_reader(File::open(path)?.take(MAX_LOCATION_BYTES + 1))
+                .map(Some)
+                .map_err(|_| {
+                    "The saved storage location is invalid. Restore it before restarting Hakoto."
+                        .into()
+                })
+        }
+        Ok(_) => Err("The saved storage location file is too large.".into()),
         Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(None),
         Err(error) => Err(error.into()),
     }
@@ -334,7 +391,10 @@ fn open_saved_collection(directory: &Path) -> Result<Connection> {
     if checked_file(&path)?.len() == 0 {
         return Err("The saved database is empty.".into());
     }
-    let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
+    let mut connection = Connection::open_with_flags(
+        path,
+        OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
     connection.pragma_update(None, "trusted_schema", false)?;
     connection.pragma_update(None, "foreign_keys", true)?;
     connection
@@ -415,23 +475,23 @@ fn check_space(source: &Connection, directory: &Path, parent: &Path) -> Result<(
     }
     let available = fs4::available_space(parent)?;
     if available < required {
-        return Err(format!("Not enough free space in {}. Need at least {required} bytes; {available} bytes are available.", parent.display()).into());
+        return Err(format!("Not enough free space in the destination. Need at least {required} bytes, with {available} bytes available.").into());
     }
     Ok(())
 }
 
 pub(crate) fn verify_references(connection: &Connection, directory: &Path) -> Result<()> {
     let mut statement = connection.prepare(
-        "SELECT DISTINCT artwork, 'artwork' FROM albums WHERE artwork IS NOT NULL
-         UNION ALL SELECT picture, 'profile-images' FROM profile WHERE picture IS NOT NULL
-         UNION ALL SELECT artwork, 'artwork' FROM undo_albums WHERE artwork IS NOT NULL",
+        "SELECT artwork, 'artwork' FROM albums WHERE artwork IS NOT NULL
+         UNION SELECT picture, 'profile-images' FROM profile WHERE picture IS NOT NULL
+         UNION SELECT artwork, 'artwork' FROM undo_albums WHERE artwork IS NOT NULL",
     )?;
     let mut rows = statement.query([])?;
     while let Some(row) = rows.next()? {
         let name: String = row.get(0)?;
         let folder: String = row.get(1)?;
-        artwork::read_checked_in(directory, &folder, &name).map_err(|error| {
-            format!("The collection references an unavailable image ({folder}/{name}): {error}. Repair or remove the reference and try again.")
+        artwork::read_checked_in(directory, &folder, &name).map_err(|_| {
+            "The collection references an unavailable image. Repair or remove the reference and try again."
         })?;
     }
     Ok(())
@@ -480,6 +540,19 @@ mod tests {
         let destination = temp.path().join("Custom storage");
         fs::create_dir(&destination).unwrap();
         (temp, default, destination)
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn rejects_windows_device_and_alternate_stream_paths() {
+        for path in [
+            r"\\.\C:\collection.csv",
+            r"C:\file:stream.csv",
+            r"\\?\GLOBALROOT\Device\disk.zip",
+        ] {
+            assert!(validate_selected_path(Path::new(path)).is_err(), "{path}");
+        }
+        assert!(validate_selected_path(Path::new(r"C:\Albums\collection.csv")).is_ok());
     }
 
     fn add_cover(storage: &mut Storage) -> String {

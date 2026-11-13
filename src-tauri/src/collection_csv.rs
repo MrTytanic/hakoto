@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::{
     database::{self, Album, Ownership},
-    metadata,
+    metadata, storage,
 };
 
 const VERSION_COLUMN: &str = "hakoto_csv_version";
@@ -110,10 +110,8 @@ pub fn export(
     {
         return Err("Choose a file name ending in .csv.".into());
     }
-    let directory = path
-        .parent()
-        .ok_or("Choose a directory for the CSV file.")?;
-    let mut file = tempfile::NamedTempFile::new_in(directory)
+    let path = storage::export_path(path)?;
+    let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
         .map_err(|_| "Could not create the CSV. Check the destination permissions.")?;
     let count = write_albums(
         &mut file,
@@ -126,8 +124,13 @@ pub fn export(
     file.as_file()
         .sync_all()
         .map_err(|_| "Could not finish writing the CSV. Check the destination and try again.")?;
-    file.persist(path)
-        .map_err(|_| "Could not save the CSV. Check the destination permissions and close any other app using the file.")?;
+    file.persist_noclobber(path).map_err(|error| {
+        if error.error.kind() == io::ErrorKind::AlreadyExists {
+            "A file already exists at that location. Choose a new CSV filename."
+        } else {
+            "Could not save the CSV. Check the destination permissions."
+        }
+    })?;
     Ok(count)
 }
 
@@ -208,6 +211,12 @@ fn parse(text: &str) -> Result<Vec<Vec<String>>> {
 }
 
 pub fn read(path: &Path) -> Result<String> {
+    storage::validate_selected_path(path)?;
+    let metadata =
+        storage::checked_file(path).map_err(|_| "Choose an accessible, regular CSV file.")?;
+    if metadata.len() > MAX_BYTES {
+        return Err("The CSV must be 32 MB or smaller.".into());
+    }
     let mut bytes = Vec::new();
     File::open(path)
         .and_then(|file| file.take(MAX_BYTES + 1).read_to_end(&mut bytes))
@@ -495,6 +504,44 @@ mod tests {
     use super::*;
 
     #[test]
+    fn export_preserves_existing_files_and_import_rejects_oversized_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("collection.csv");
+        std::fs::write(&path, b"existing file").unwrap();
+        let library = database::AlbumLibrary {
+            owned: vec![],
+            wishlist: vec![],
+        };
+        assert!(
+            export(&path, library, false)
+                .unwrap_err()
+                .contains("already exists")
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"existing file");
+
+        File::create(&path).unwrap().set_len(MAX_BYTES + 1).unwrap();
+        assert!(read(&path).unwrap_err().contains("32 MB"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn csv_import_and_export_refuse_symbolic_links() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = directory.path().join("original.csv");
+        let link = directory.path().join("link.csv");
+        std::fs::write(&original, b"original").unwrap();
+        std::os::unix::fs::symlink(&original, &link).unwrap();
+        assert!(read(&link).is_err());
+        let library = database::AlbumLibrary {
+            owned: vec![],
+            wishlist: vec![],
+        };
+        assert!(export(&link, library, false).is_err());
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+        assert!(link.symlink_metadata().unwrap().is_symlink());
+    }
+
+    #[test]
     fn empty_collection_export_is_a_valid_no_op_import() {
         let directory = tempfile::tempdir().unwrap();
         let mut db = database::initialize_database(directory.path(), None).unwrap();
@@ -526,6 +573,7 @@ mod tests {
             1
         );
         assert!(!read(&file).unwrap().contains("＋Song"));
+        let file = source.path().join("collection-with-wishlist.csv");
         assert_eq!(
             export(&file, database::get_album_library(&mut db).unwrap(), true).unwrap(),
             2
