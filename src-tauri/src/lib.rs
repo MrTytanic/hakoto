@@ -11,6 +11,7 @@ use tauri_plugin_dialog::DialogExt;
 use tauri_plugin_opener::OpenerExt;
 
 mod artwork;
+mod backup;
 mod collection_csv;
 mod crates;
 mod database;
@@ -24,6 +25,12 @@ struct DatabaseState {
     storage: Mutex<Result<storage::Storage, String>>,
     relocation: Mutex<()>,
     csv_import: Mutex<Option<PendingCsvImport>>,
+    backup_restore: Mutex<Option<PendingBackupRestore>>,
+}
+
+struct PendingBackupRestore {
+    active_directory: PathBuf,
+    staged: backup::StagedRestore,
 }
 
 struct PendingCsvImport {
@@ -382,6 +389,120 @@ async fn import_collection_csv(
 }
 
 #[tauri::command]
+async fn export_backup(app: AppHandle, settings: backup::BackupSettings) -> Result<bool, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .set_title("Create Hakoto backup")
+            .set_file_name("hakoto-backup.zip")
+            .add_filter("ZIP backup", &["zip"])
+            .blocking_save_file()
+        else {
+            return Ok(false);
+        };
+        let path = file.into_path().map_err(|error| error.to_string())?;
+        app.state::<DatabaseState>().with_storage(|storage| {
+            backup::export(storage, &path, &settings)
+                .map_err(|error| format!("Could not create the backup: {error}"))
+        })?;
+        Ok(true)
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn preview_backup_restore(app: AppHandle) -> Result<Option<backup::RestoreSummary>, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let Some(file) = app
+            .dialog()
+            .file()
+            .set_title("Choose a Hakoto backup")
+            .add_filter("ZIP backup", &["zip"])
+            .blocking_pick_file()
+        else {
+            return Ok(None);
+        };
+        let path = file.into_path().map_err(|error| error.to_string())?;
+        let state = app.state::<DatabaseState>();
+        let (active_directory, parent) = state.with_storage(|storage| {
+            Ok((
+                storage.directory.clone(),
+                storage.default_dir().to_path_buf(),
+            ))
+        })?;
+        let staged = backup::stage(&path, &parent)
+            .map_err(|error| format!("Could not verify the backup: {error}"))?;
+        let summary = staged.summary.clone();
+        *state
+            .backup_restore
+            .lock()
+            .map_err(|error| error.to_string())? = Some(PendingBackupRestore {
+            active_directory,
+            staged,
+        });
+        Ok(Some(summary))
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn discard_backup_restore(app: AppHandle, token: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        let mut pending = state
+            .backup_restore
+            .lock()
+            .map_err(|error| error.to_string())?;
+        if pending
+            .as_ref()
+            .is_some_and(|preview| preview.staged.summary.token == token)
+        {
+            *pending = None;
+        }
+        Ok(())
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+async fn confirm_backup_restore(app: AppHandle, token: String) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        let mut pending = state.backup_restore.lock().map_err(|error| error.to_string())?;
+        if pending.as_ref().is_none_or(|preview| preview.staged.summary.token != token) {
+            return Err("Choose the backup again before restoring.".into());
+        }
+        let preview = pending.take().unwrap();
+        state.with_storage(|storage| {
+            if storage.directory != preview.active_directory { return Err("The storage location changed. Choose the backup again before restoring.".into()); }
+            storage.activate_restored(preview.staged.staging).map_err(|error| {
+                format!("Could not restore the backup: {error}. Your original collection is still active.")
+            })
+        })
+    }).await.map_err(|error| error.to_string())?
+}
+
+#[tauri::command]
+fn pending_backup_settings(
+    state: State<'_, DatabaseState>,
+) -> Result<Option<backup::PendingSettings>, String> {
+    state.with_storage(|storage| {
+        backup::pending_settings(storage).map_err(|error| error.to_string())
+    })
+}
+
+#[tauri::command]
+fn finish_backup_settings(state: State<'_, DatabaseState>, token: String) -> Result<(), String> {
+    state.with_storage(|storage| {
+        backup::finish_settings(storage, &token).map_err(|error| error.to_string())
+    })
+}
+
+#[tauri::command]
 fn get_storage_info(state: State<'_, DatabaseState>) -> Result<storage::StorageInfo, String> {
     state.with_storage(|storage| storage.info().map_err(|error| error.to_string()))
 }
@@ -509,6 +630,12 @@ pub fn run() {
             set_display_name,
             set_profile_picture,
             get_storage_info,
+            export_backup,
+            preview_backup_restore,
+            discard_backup_restore,
+            confirm_backup_restore,
+            pending_backup_settings,
+            finish_backup_settings,
             export_collection_csv,
             preview_collection_csv,
             discard_collection_csv_preview,
@@ -550,6 +677,7 @@ pub fn run() {
                 storage: Mutex::new(storage),
                 relocation: Mutex::new(()),
                 csv_import: Mutex::new(None),
+                backup_restore: Mutex::new(None),
             });
 
             Ok(())

@@ -16,7 +16,7 @@ import Crates from "./pages/Crates";
 import Statistics from "./pages/Statistics";
 import Settings from "./pages/Settings";
 
-function App() {
+function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "type"> } = {}) {
   const [activePage, setActivePage] = useState("Collection");
   const [theme, setTheme] = useState(themePreference.read);
   const [textScale, setTextScale] = useState(textScalePreference.read);
@@ -74,7 +74,7 @@ function App() {
   const [layoutRevision, setLayoutRevision] = useState(0);
 
   // Notifications
-  const [notifications, setNotifications] = useState<ToastData[]>([]);
+  const [notifications, setNotifications] = useState<ToastData[]>(() => restoreNotice ? [{ id: "backup-restore", ...restoreNotice }] : []);
   const notificationTimers = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const undoCleanup = useRef(new Map<string, () => Promise<void>>());
   const undoBusy = useRef(new Set<string>());

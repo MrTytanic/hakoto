@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { runInNewContext } from "node:vm";
 import { alphabeticalDividersPreference, animationDurationPreference, animationDurations, animationsPreference, collectionPageSizePreference, collectionPageSizes, collectionViewPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference } from "../src/settings.ts";
+import { applyBackupSettings, readBackupSettings } from "../src/settings.ts";
 
 const index = readFileSync(new URL("../index.html", import.meta.url), "utf8");
 const bootstrap = index.match(/<script>([\s\S]*?)<\/script>/);
@@ -153,11 +154,25 @@ test("startup sets the saved palette before styles and uses the same System reso
       const dataset = { theme: "dark" };
       runInNewContext(bootstrap[1], {
         document: { documentElement: { dataset } },
-        localStorage: { getItem(key) { assert.equal(key, "hakoto.theme"); return stored; } },
+        localStorage: { getItem(key) { return key === "hakoto.theme" ? stored : null; } },
         matchMedia(query) { assert.equal(query, systemThemeQuery); return { matches: systemIsDark }; }
       });
       const validTheme = stored === "light" || stored === "system" ? stored : "dark";
       assert.equal(dataset.theme, resolveTheme(validTheme, systemIsDark));
     }
   }
+});
+
+test("restored preferences persist as one update and do not replay after later edits", t => {
+  const entries = new Map();
+  useStorage(t, { getItem: key => entries.get(key) ?? null, setItem: (key, value) => entries.set(key, value) });
+  const restored = { ...readBackupSettings(), theme: "light", textScale: "130", collectionView: "list" };
+  applyBackupSettings("restore-a", restored);
+  assert.deepEqual(readBackupSettings(), restored);
+  assert.equal(entries.size, 1);
+  themePreference.write("system");
+  applyBackupSettings("restore-a", restored);
+  assert.equal(themePreference.read(), "system");
+  applyBackupSettings("restore-b", restored);
+  assert.equal(themePreference.read(), "light");
 });

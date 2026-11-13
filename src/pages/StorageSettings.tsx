@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import CollectionCsv from "../components/CollectionCsv";
+import CollectionBackup from "../components/CollectionBackup";
 import type { Album } from "../types/Album";
 
 type StorageInfo = {
@@ -117,6 +118,8 @@ export default function StorageSettings({ profilePicture, onAlbumsImported }: {
             onAlbumsImported(albums);
             setAttempt(value => value + 1);
           }} />
+
+          <CollectionBackup disabled={busy} />
 
           <section className="storage-advanced" aria-labelledby="storage-advanced-title">
             <h3 id="storage-advanced-title">Advanced storage actions</h3>
