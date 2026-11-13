@@ -28,7 +28,7 @@ function Statistics({ profile, albums, onBrowseCollection }: {
             <div className="settings-card"><dt>Favorites</dt><dd>{stats.favorites}</dd></div>
           </dl>
           <section className="settings-card statistics-section" aria-labelledby="format-statistics">
-            <h2 id="format-statistics">Format distribution</h2>
+            <h2 className="section-title" id="format-statistics">Format distribution</h2>
             <ul className="statistics-formats">
               {stats.formats.map(({ format, count }) => (
                 <li key={format}>
@@ -40,7 +40,7 @@ function Statistics({ profile, albums, onBrowseCollection }: {
             </ul>
           </section>
           <section className="settings-card statistics-section" aria-labelledby="growth-statistics">
-            <h2 id="growth-statistics">Collection growth</h2>
+            <h2 className="section-title" id="growth-statistics">Collection growth</h2>
             {stats.growth.length === 0 ? (
               <p>No acquisition dates recorded yet. Edit an album’s Date acquired to include it here.</p>
             ) : (
@@ -71,7 +71,7 @@ function Statistics({ profile, albums, onBrowseCollection }: {
             )}
           </section>
           <section className="settings-card statistics-section" aria-labelledby="artist-statistics">
-            <h2 id="artist-statistics">Artist Rankings</h2>
+            <h2 className="section-title" id="artist-statistics">Artist Rankings</h2>
             {stats.artists.length === 0 ? <p>Add artist names to your albums to see rankings.</p> : (
               <ol className="statistics-artists">
                 {stats.artists.map(({ name, count }) => (

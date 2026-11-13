@@ -1,0 +1,97 @@
+.section-title,
+.collection-empty h2,
+.album-modal-header h2 {
+  margin: 0;
+  color: var(--text-strong);
+  font-size: var(--section-title-size);
+  font-weight: var(--heading-weight);
+  line-height: var(--heading-line-height);
+  overflow-wrap: anywhere;
+}
+
+:where(.collection-add, .collection-empty button, .album-submit, .album-cancel, .settings-upload, .settings-remove, .details-actions button, .delete-confirmation-actions button) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: var(--control-height);
+  padding: 7px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--surface-muted);
+  color: var(--text);
+  font: inherit;
+  font-size: var(--control-font-size);
+  font-weight: 600;
+  line-height: 1.3;
+  cursor: pointer;
+}
+
+:where(.album-cancel, .settings-upload, .settings-remove, .details-actions button, .delete-confirmation-actions button):where(:hover) {
+  background: var(--surface-hover);
+}
+
+:where(.collection-add, .collection-empty button, .album-submit) {
+  border-color: transparent;
+  background: var(--action);
+  color: var(--action-text);
+}
+
+:where(.collection-add, .collection-empty button, .album-submit):where(:hover) {
+  background: var(--action-hover);
+}
+
+:where(button, input, select, textarea, summary, a[href]):focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 2px;
+}
+
+:where(button, select, input, textarea):disabled {
+  opacity: .6;
+  cursor: default;
+}
+
+:is(.album-form-field, .details-form) :where(input:not([type="file"]), select, textarea),
+.settings-field :where(input[type="text"], select) {
+  width: 100%;
+  min-width: 0;
+  min-height: var(--control-height);
+  padding: 7px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--control-radius);
+  background: var(--canvas);
+  color: var(--text-strong);
+  font: inherit;
+  font-size: var(--control-font-size);
+  line-height: 1.3;
+}
+
+:is(.album-form-field, .details-form, .settings-field) :is(input, select, textarea):focus {
+  border-color: var(--focus);
+}
+
+.collection-empty {
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  min-height: clamp(220px, 40vh, 350px);
+  padding: 24px 12px;
+  gap: 12px;
+  color: var(--text-subtle);
+  text-align: center;
+}
+
+.collection-empty > svg {
+  width: 42px;
+  height: 42px;
+}
+
+.collection-empty p {
+  max-width: 48ch;
+  color: var(--text-muted);
+  font-size: var(--control-font-size);
+}
+
+.collection-empty [role="alert"] p {
+  margin-top: 8px;
+}

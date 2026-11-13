@@ -122,7 +122,7 @@ export default function Crates({ profile, albums, revision, onUndo }: {
       <div className="collection-top">
         <ProfileHeader profile={profile} title="Crates" />
         {!selected && crates.length > 0 && <button ref={newCrateButton} className="collection-add" type="button" disabled={loadStatus !== "ready" || busy}
-          onClick={() => setDialog({ kind: "create" })}><Plus size={17} aria-hidden="true" />Create Crate</button>
+          onClick={() => setDialog({ kind: "create" })}><Plus size={16} aria-hidden="true" />Create Crate</button>
         }
       </div>
 
@@ -160,7 +160,7 @@ export default function Crates({ profile, albums, revision, onUndo }: {
             <button className="album-cancel" type="button" disabled={busy} onClick={() => setDialog({ kind: "edit", crate: selected })}>Edit Crate</button>
             <button className="album-cancel" type="button" disabled={busy} onClick={() => setDialog({ kind: "delete", crate: selected })}>Delete Crate</button>
           </div>
-          <h2 id="selected-crate-name" ref={detailHeading} tabIndex={-1}>{selected.name}</h2>
+          <h2 className="section-title" id="selected-crate-name" ref={detailHeading} tabIndex={-1}>{selected.name}</h2>
           <p className="crate-count">{albumCount(selected.albumIds.length)}</p>
           {selected.description && <p className="crate-description">{selected.description}</p>}
           {members.length === 0 ? (

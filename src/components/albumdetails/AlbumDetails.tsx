@@ -168,13 +168,14 @@ function AlbumDetails({
         dismissOnBackdrop
       >
         <div className="details-header">
-          <h2 id="details-title">
+          <h2 className="section-title" id="details-title">
             {editing ? "Edit Album" : "Album Details"}
           </h2>
 
           <button
             type="button"
             onClick={closeModal}
+            className="modal-close"
             aria-label="Close album details"
             disabled={isSaving || showDeleteConfirmation}
           >
@@ -339,7 +340,7 @@ function AlbumDetails({
             <Trash2 size={22} />
           </div>
 
-          <h3 id="delete-confirmation-title">
+          <h3 className="section-title" id="delete-confirmation-title">
             Delete Album?
           </h3>
 

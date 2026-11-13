@@ -208,7 +208,7 @@ export default function Shelves(collection: CollectionProps) {
 
       <section className="shelf-workspace" aria-labelledby="shelf-workspace-title">
         <div className="shelf-workspace-heading">
-          <h2 id="shelf-workspace-title">Shelf Workspace</h2>
+          <h2 className="section-title" id="shelf-workspace-title">Shelf Workspace</h2>
           {(selected || list.status !== "ready") && <button type="button" ref={newShelfButton} className="collection-add" disabled={list.status !== "ready" || saving} onClick={() => openDialog({ kind: "create" })}>
             <Plus size={16} aria-hidden="true" /> New Shelf
           </button>}
@@ -274,9 +274,9 @@ export default function Shelves(collection: CollectionProps) {
                 )}
             </>
           ) : (
-            <div className="shelf-message">
-              <Layers3 size={30} strokeWidth={1.5} aria-hidden="true" />
-              <h3>No shelves yet</h3>
+            <div className="shelf-message collection-empty">
+              <Layers3 size={42} strokeWidth={1.2} aria-hidden="true" />
+              <h3 className="section-title">No shelves yet</h3>
               <p>Set up rows and columns to arrange your albums.</p>
               <button type="button" ref={newShelfButton} className="collection-add" disabled={saving} onClick={() => openDialog({ kind: "create" })}>
                 <Plus size={16} aria-hidden="true" /> Create Shelf

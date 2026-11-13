@@ -6,17 +6,17 @@
   margin: auto;
   overflow-y: auto;
   overscroll-behavior: contain;
+  padding: clamp(18px, 3vw, 24px);
+  border: 1px solid var(--border);
+  border-radius: var(--dialog-radius);
+  background: var(--surface);
+  box-shadow: 0 20px 60px var(--shadow);
   color: var(--text);
 }
 
 .app-modal::backdrop {
   background: var(--shadow);
   backdrop-filter: blur(3px);
-}
-
-.app-modal :is(button, input, select, textarea, summary, a[href]):focus-visible {
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
 }
 
 .app-modal button:disabled {

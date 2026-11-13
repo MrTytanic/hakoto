@@ -20,7 +20,7 @@
   width: 100%;
   aspect-ratio: 1;
   overflow: hidden;
-  border-radius: 8px;
+  border-radius: var(--card-radius);
   background: var(--surface-muted);
   color: var(--text-subtle);
   transition: opacity var(--animation-short);
@@ -33,7 +33,7 @@
 .album-card:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: 4px;
-  border-radius: 8px;
+  border-radius: var(--card-radius);
 }
 
 .album-card .album-artwork img {
@@ -182,7 +182,7 @@
   max-width: none;
   padding: 8px 48px 8px 8px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--card-radius);
   background: var(--surface);
 }
 

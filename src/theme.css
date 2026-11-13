@@ -1,5 +1,15 @@
 :root {
   --text-scale: 1;
+  --page-title-size: calc(28px * var(--text-scale));
+  --section-title-size: calc(19px * var(--text-scale));
+  --control-font-size: calc(13px * var(--text-scale));
+  --heading-weight: 650;
+  --heading-line-height: 1.25;
+  --page-heading-gap: 24px;
+  --control-height: max(40px, calc(32px * var(--text-scale)));
+  --control-radius: 8px;
+  --card-radius: 10px;
+  --dialog-radius: 12px;
   --animation-duration: 300ms;
   --animation-short: calc(var(--animation-duration) * .7);
   --animation-settle: calc(var(--animation-duration) * .8);
