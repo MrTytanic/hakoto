@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
 import { createPortal } from "react-dom";
 import { dropHint, dropKind, placementIndex, slotKey, type ArrangementSource } from "../shelfArrangement";
 import type { Album } from "../types/Album";
@@ -17,9 +17,55 @@ type ShelfGridProps = {
     dragging?: boolean;
     onRemove?: (source: ArrangementSource) => void;
     onSlot: (slot: ShelfSlot, albumId: string | undefined) => void;
-    onDragStart: (event: PointerEvent<HTMLButtonElement>, source: ArrangementSource) => void;
+    onDragStart: (event: PointerEvent<HTMLTableElement>, source: ArrangementSource, button: HTMLButtonElement) => void;
   };
 };
+
+type ShelfCellProps = {
+  row: number;
+  column: number;
+  albumId: string | undefined;
+  album: Album | undefined;
+  loading: boolean;
+  interactive: boolean;
+  removable: boolean;
+  focused: boolean;
+  hovered: boolean;
+  saving: boolean;
+  kind: ReturnType<typeof dropKind> | undefined;
+};
+
+const ShelfCell = memo(function ShelfCell({
+  row, column, albumId, album, loading, interactive, removable, focused, hovered, saving, kind
+}: ShelfCellProps) {
+  const title = album?.title ?? (albumId === undefined ? "Empty" : loading ? "Loading album…" : "Album unavailable");
+  const description = album ? `${album.title} — ${album.artist}` : title;
+  const label = `Row ${row + 1}, column ${column + 1}: ${description}`;
+  const content = albumId === undefined ? <span className="shelf-empty-slot">Empty</span> :
+    <ShelfSpine album={album} fallback={title} />;
+  return (
+    <td className="shelf-slot" aria-label={interactive ? undefined : label} title={description}
+      data-shelf-slot={interactive ? "" : undefined} data-row={row} data-column={column}
+      data-drop-kind={kind} data-drop-hovered={hovered ? "" : undefined}>
+      {interactive ? (
+        <button type="button" className="shelf-slot-button" data-row={row} data-column={column}
+          data-slot-empty={albumId === undefined ? "" : undefined} tabIndex={focused ? 0 : -1}
+          aria-label={kind ? `${label}. ${dropHint(kind)}` : label} aria-pressed={kind === "origin" || undefined}
+          aria-disabled={saving || undefined} aria-haspopup={albumId !== undefined && removable ? "menu" : undefined}>
+          <span className="shelf-slot-motion" key={albumId ?? "empty"}>{content}</span>
+        </button>
+      ) : content}
+    </td>
+  );
+});
+
+function getSlotButton(target: EventTarget) {
+  return target instanceof Element ? target.closest<HTMLButtonElement>(".shelf-slot-button") : null;
+}
+
+function readSlot(button: HTMLButtonElement): ShelfSlot {
+  return { row: Number(button.dataset.row), column: Number(button.dataset.column) };
+}
 
 export default function ShelfGrid({ shelf, placements, albums, albumsLoading = false, arrangement }: ShelfGridProps) {
   const albumsById = useMemo(() => new Map(albums.map(album => [album.id, album])), [albums]);
@@ -58,7 +104,44 @@ export default function ShelfGrid({ shelf, placements, albums, albumsLoading = f
 
   return (
     <div className="shelf-scroll" role="region" aria-label={`${shelf.name} layout`} tabIndex={arrangement ? undefined : 0}>
-      <table ref={table} className="shelf-grid" aria-label="Shelf slots" aria-describedby={arrangement ? "shelf-arrange-help" : undefined} data-orientation={shelf.orientation}>
+      <table ref={table} className="shelf-grid" aria-label="Shelf slots" aria-describedby={arrangement ? "shelf-arrange-help" : undefined} data-orientation={shelf.orientation} onFocus={event => {
+        const button = getSlotButton(event.target);
+        if (!button) return;
+        const slot = readSlot(button);
+        setFocus(current => current.row === slot.row && current.column === slot.column ? current : slot);
+      }} onClick={event => {
+        const button = getSlotButton(event.target);
+        if (!button) return;
+        const slot = readSlot(button);
+        arrangement?.onSlot(slot, slots.get(slotKey(slot)));
+      }} onPointerDown={event => {
+        const button = getSlotButton(event.target);
+        if (!button) return;
+        const slot = readSlot(button);
+        const albumId = slots.get(slotKey(slot));
+        if (albumId !== undefined && albumsById.has(albumId)) {
+          arrangement?.onDragStart(event, { slot, albumId }, button);
+        }
+      }} onContextMenu={event => {
+        const button = getSlotButton(event.target);
+        if (!button || !arrangement?.onRemove) return;
+        const slot = readSlot(button);
+        const albumId = slots.get(slotKey(slot));
+        if (albumId === undefined) return;
+        event.preventDefault();
+        openMenu(button, { albumId, slot }, event.clientX, event.clientY);
+      }} onKeyDown={event => {
+        const button = getSlotButton(event.target);
+        if (!button) return;
+        const slot = readSlot(button);
+        const albumId = slots.get(slotKey(slot));
+        if (albumId !== undefined && arrangement?.onRemove &&
+          (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
+          event.preventDefault();
+          const bounds = button.getBoundingClientRect();
+          openMenu(button, { albumId, slot }, bounds.left, bounds.bottom);
+        } else navigate(event, slot);
+      }}>
         <tbody>
           {Array.from({ length: shelf.rows }, (_, row) => (
             <tr key={row}>
@@ -67,48 +150,11 @@ export default function ShelfGrid({ shelf, placements, albums, albumsLoading = f
                 const key = slotKey(slot);
                 const albumId = slots.get(key);
                 const album = albumId === undefined ? undefined : albumsById.get(albumId);
-                const title = album?.title ?? (albumId === undefined ? "Empty" : albumsLoading ? "Loading album…" : "Album unavailable");
-                const description = album ? `${album.title} — ${album.artist}` : title;
-                const label = `Row ${row + 1}, column ${column + 1}: ${description}`;
                 const kind = arrangement?.source ? dropKind(arrangement.source, slot, albumId) : undefined;
-                const content = albumId === undefined ? <span className="shelf-empty-slot">Empty</span> : (
-                  <ShelfSpine album={album} fallback={title} />
-                );
-                return (
-                  <td key={column} className="shelf-slot" aria-label={arrangement ? undefined : label} title={description}
-                    data-shelf-slot={arrangement ? "" : undefined} data-row={row} data-column={column}
-                    data-drop-kind={kind} data-drop-hovered={hoveredKey === key ? "" : undefined}>
-                    {arrangement ? (
-                      <button
-                        type="button"
-                        className="shelf-slot-button"
-                        data-row={row}
-                        data-column={column}
-                        data-slot-empty={albumId === undefined ? "" : undefined}
-                        tabIndex={focusedKey === key ? 0 : -1}
-                        aria-label={kind ? `${label}. ${dropHint(kind)}` : label}
-                        aria-pressed={kind === "origin" || undefined}
-                        aria-disabled={arrangement.saving || undefined}
-                        onFocus={() => setFocus(slot)}
-                        aria-haspopup={albumId !== undefined && arrangement.onRemove ? "menu" : undefined}
-                        onContextMenu={albumId !== undefined && arrangement.onRemove ? event => {
-                          event.preventDefault();
-                          openMenu(event.currentTarget, { albumId, slot }, event.clientX, event.clientY);
-                        } : undefined}
-                        onKeyDown={event => {
-                          if (albumId !== undefined && arrangement.onRemove &&
-                            (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10"))) {
-                            event.preventDefault();
-                            const bounds = event.currentTarget.getBoundingClientRect();
-                            openMenu(event.currentTarget, { albumId, slot }, bounds.left, bounds.bottom);
-                          } else navigate(event, slot);
-                        }}
-                        onClick={() => arrangement.onSlot(slot, albumId)}
-                        onPointerDown={album ? event => arrangement.onDragStart(event, { slot, albumId: album.id }) : undefined}
-                      ><span className="shelf-slot-motion" key={albumId ?? "empty"}>{content}</span></button>
-                    ) : content}
-                  </td>
-                );
+                return <ShelfCell key={column} row={row} column={column} albumId={albumId} album={album}
+                  loading={albumsLoading} interactive={Boolean(arrangement)} removable={Boolean(arrangement?.onRemove)}
+                  focused={focusedKey === key} hovered={hoveredKey === key} saving={Boolean(arrangement?.saving)}
+                  kind={kind} />;
               })}
             </tr>
           ))}

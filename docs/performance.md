@@ -72,6 +72,19 @@ Production React in headless Edge updated the favorite flag of one visible album
 
 Each run made 2,525 artwork URL conversions before the change and zero during the timed updates afterward. URL conversions count repeated rendering work. Browser paint, real artwork decoding, native IPC, and memory usage were outside this measurement.
 
+### Shelves and artwork follow-up
+
+Production React in headless Edge rendered a fully occupied grid from 2,000 generated albums. For each grid size, 30 warm-ups and 101 timed updates alternated the hovered cell, swapped the first two placements, or added and removed one column. Values are median synchronous React and DOM update times. The resize fixture exercises rendering only. Actual shelf edits still use the existing Save command and backend occupancy checks.
+
+| Shelf | Hover before → after (ms) | Swap before → after (ms) | Resize before → after (ms) |
+| --- | ---: | ---: | ---: |
+| 5×5 | 0.2 → 0.1 | 0.3 → 0.1 | 0.2 → 0.1 |
+| 10×10 | 0.8 → 0.1 | 0.6 → 0.2 | 0.6 → 0.2 |
+
+Unchanged cells reuse their rendered content. Drag tracking schedules frames for pointer movement, scrolling, or resize, and continues while auto-scrolling changes position. Pointer frames perform one hit test in the usual case and repeat it after a scroll changes the target. Shelf writes still happen only on completed actions.
+
+Spine requests sharing a filename share one read and decode. Unmounting cancels queued work once its final consumer leaves. The cache stores palette results only. In-flight work finishes and releases the blob URL, image source, and canvas. Rust preallocates the bounded read buffer from file metadata. These changes were checked with a queued-read regression test. Browser paint, real decoding time, memory usage, and native drag-to-commit latency were outside the grid benchmark.
+
 ### Baseline commands
 
 Run from the repository root with the locked frontend and Rust dependencies available. For the build sizes, use `npm run build`, then run `cargo build --locked --offline --bin hakoto` and `cargo build --locked --offline --release --features tauri/custom-protocol` from `src-tauri`. Inspect the executables with `objdump -h` and use file lengths for artifact sizes.

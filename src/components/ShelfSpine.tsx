@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState, type CSSProperties } from "react";
-import { observeSpine, spinePalettes } from "../spineArtwork";
+import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import { cachedSpinePalette, observeSpine, requestSpinePalette } from "../spineArtwork";
 import type { SpinePalette } from "../spineColor";
 import type { Album } from "../types/Album";
 
@@ -9,29 +9,27 @@ function mediaStyle(format: string) {
   return "case";
 }
 
-export default function ShelfSpine({ album, fallback }: { album?: Album; fallback: string }) {
+export default memo(function ShelfSpine({ album, fallback }: { album?: Album; fallback: string }) {
   const spine = useRef<HTMLSpanElement>(null);
   const filename = album?.artwork;
   const [sample, setSample] = useState<{ filename: string; palette: SpinePalette | null }>();
   const palette = filename
-    ? sample?.filename === filename ? sample.palette : spinePalettes.get(filename)
+    ? sample?.filename === filename ? sample.palette : cachedSpinePalette(filename)
     : undefined;
 
   useEffect(() => {
     if (!filename || !spine.current) return;
-    const cached = spinePalettes.get(filename);
+    const cached = cachedSpinePalette(filename);
     if (cached !== undefined) {
-      setSample({ filename, palette: cached });
+      if (palette === undefined) setSample({ filename, palette: cached });
       return;
     }
-    let cancelled = false;
+    let cancelSample: (() => void) | undefined;
     const unobserve = observeSpine(spine.current, () => {
-      void spinePalettes.request(filename).then(palette => {
-        if (!cancelled) setSample({ filename, palette });
-      });
+      cancelSample = requestSpinePalette(filename, palette => setSample({ filename, palette }));
     });
     return () => {
-      cancelled = true;
+      cancelSample?.();
       unobserve?.();
     };
   }, [filename]);
@@ -53,4 +51,4 @@ export default function ShelfSpine({ album, fallback }: { album?: Album; fallbac
       {album && <span className="shelf-spine-detail">{album.format}</span>}
     </span>
   );
-}
+});

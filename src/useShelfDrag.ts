@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
+import { useCallback, useEffect, useEffectEvent, useLayoutEffect, useRef, useState, type MouseEvent, type PointerEvent as ReactPointerEvent, type RefObject } from "react";
 import { slotKey, type ArrangementSource } from "./shelfArrangement";
 import type { ShelfSlot } from "./types/Shelf";
 
@@ -13,10 +13,10 @@ type Gesture = {
   source: ArrangementSource;
   active: boolean;
   target: DropTarget;
+  dirty: boolean;
 };
 
-function hitTarget(root: HTMLElement | null, trash: HTMLElement | null, point: Point): DropTarget {
-  const hit = document.elementFromPoint(point.x, point.y);
+function hitTarget(root: HTMLElement | null, trash: HTMLElement | null, hit: Element | null): DropTarget {
   if (hit && trash?.contains(hit)) return "trash";
   const slot = hit?.closest<HTMLElement>("[data-shelf-slot]");
   return slot && root?.contains(slot) ? { row: Number(slot.dataset.row), column: Number(slot.dataset.column) } : null;
@@ -34,21 +34,33 @@ function edgeSpeed(value: number, start: number, end: number) {
   return 0;
 }
 
-function scrollAtPointer(root: HTMLElement | null, point: Point) {
+function scrollAtPointer(root: HTMLElement | null, point: Point, hit: Element | null) {
   const main = root?.closest("main");
-  if (!main) return;
+  if (!main) return false;
   const outer = main.getBoundingClientRect();
-  const inner = document.elementFromPoint(point.x, point.y)?.closest<HTMLElement>(".shelf-scroll");
+  const inner = hit?.closest<HTMLElement>(".shelf-scroll");
+  let scrolled = false;
   if (inner && root?.contains(inner)) {
     const bounds = inner.getBoundingClientRect();
-    const before = inner.scrollTop;
-    inner.scrollLeft += edgeSpeed(point.x, Math.max(bounds.left, outer.left), Math.min(bounds.right, outer.right));
-    inner.scrollTop += edgeSpeed(point.y, Math.max(bounds.top, outer.top), Math.min(bounds.bottom, outer.bottom));
-    if (inner.scrollTop !== before) return;
+    const dx = edgeSpeed(point.x, Math.max(bounds.left, outer.left), Math.min(bounds.right, outer.right));
+    const dy = edgeSpeed(point.y, Math.max(bounds.top, outer.top), Math.min(bounds.bottom, outer.bottom));
+    if (dx || dy) {
+      const { scrollTop, scrollLeft } = inner;
+      if (dx) inner.scrollLeft += dx;
+      if (dy) inner.scrollTop += dy;
+      if (inner.scrollTop !== scrollTop) return true;
+      scrolled = inner.scrollLeft !== scrollLeft;
+    }
   }
   if (point.x >= outer.left && point.x <= outer.right) {
-    main.scrollTop += edgeSpeed(point.y, Math.max(0, outer.top), Math.min(window.innerHeight, outer.bottom));
+    const dy = edgeSpeed(point.y, Math.max(0, outer.top), Math.min(window.innerHeight, outer.bottom));
+    if (dy) {
+      const before = main.scrollTop;
+      main.scrollTop += dy;
+      scrolled ||= main.scrollTop !== before;
+    }
   }
+  return scrolled;
 }
 
 export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
@@ -99,12 +111,16 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
     };
   }, [cancel, release]);
 
-  function tick() {
+  const tick = useCallback(function updatePreview() {
+    frame.current = undefined;
     const current = gesture.current;
-    if (!current?.active) return;
+    if (!current?.active || !current.dirty) return;
     const { point } = current;
-    if (hitTarget(null, trashRef.current, point) !== "trash") scrollAtPointer(root.current, point);
-    const target = hitTarget(root.current, current.source.slot ? trashRef.current : null, point);
+    let hit = document.elementFromPoint(point.x, point.y);
+    const overTrash = hit && trashRef.current?.contains(hit);
+    const scrolled = !overTrash && scrollAtPointer(root.current, point, hit);
+    if (scrolled) hit = document.elementFromPoint(point.x, point.y);
+    const target = hitTarget(root.current, current.source.slot ? trashRef.current : null, hit);
     if (targetKey(target) !== targetKey(current.target)) {
       current.target = target;
       setDrag({ source: current.source, target });
@@ -116,47 +132,64 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
       preview.style.transform = `translate(${x}px, ${y}px)`;
       preview.style.visibility = "visible";
     }
-    frame.current = requestAnimationFrame(tick);
-  }
+    current.dirty = Boolean(scrolled);
+    if (current.dirty) frame.current = requestAnimationFrame(updatePreview);
+  }, [root]);
 
-  const start = useCallback((event: ReactPointerEvent<HTMLElement>, source: ArrangementSource) => {
+  const scheduleFrame = useCallback(() => {
+    const current = gesture.current;
+    if (!current?.active) return;
+    current.dirty = true;
+    if (frame.current === undefined) frame.current = requestAnimationFrame(tick);
+  }, [tick]);
+
+  const dragging = drag !== null;
+  useLayoutEffect(() => {
+    if (dragging) scheduleFrame();
+  }, [dragging, scheduleFrame]);
+
+  const start = useCallback((event: ReactPointerEvent<HTMLElement>, source: ArrangementSource, element = event.currentTarget) => {
     if (gesture.current || !event.isPrimary || event.button !== 0) return;
-    const element = event.currentTarget;
     element.setPointerCapture(event.pointerId);
     const point = { x: event.clientX, y: event.clientY };
-    gesture.current = { pointerId: event.pointerId, element, origin: point, point, source, active: false, target: null };
+    gesture.current = {
+      pointerId: event.pointerId, element, origin: point, point, source,
+      active: false, target: null, dirty: false
+    };
   }, []);
 
-  function onPointerMove(event: PointerEvent) {
+  const onPointerMove = useEffectEvent((event: PointerEvent) => {
     const current = gesture.current;
     if (!current || current.pointerId !== event.pointerId) return;
     current.point = { x: event.clientX, y: event.clientY };
-    if (current.active) return;
-    if (Math.hypot(current.point.x - current.origin.x, current.point.y - current.origin.y) < 6) return;
-    current.active = true;
-    onStart();
-    setDrag({ source: current.source, target: null });
-    frame.current = requestAnimationFrame(tick);
-  }
+    if (!current.active) {
+      if (Math.hypot(current.point.x - current.origin.x, current.point.y - current.origin.y) < 6) return;
+      current.active = true;
+      onStart();
+      setDrag({ source: current.source, target: null });
+    }
+    scheduleFrame();
+  });
 
-  function onPointerUp(event: PointerEvent) {
+  const onPointerUp = useEffectEvent((event: PointerEvent) => {
     if (gesture.current?.pointerId !== event.pointerId) return;
     const current = release(false);
     if (!current?.active) return;
     suppressClick.current = true;
     setDrag(null);
-    onDrop(current.source, hitTarget(root.current, current.source.slot ? trashRef.current : null, { x: event.clientX, y: event.clientY }));
-  }
+    const hit = document.elementFromPoint(event.clientX, event.clientY);
+    onDrop(current.source, hitTarget(root.current, current.source.slot ? trashRef.current : null, hit));
+  });
 
-  function onPointerCancel(event: PointerEvent) {
+  const onPointerCancel = useEffectEvent((event: PointerEvent) => {
     if (gesture.current?.pointerId === event.pointerId) cancel();
-  }
+  });
 
-  function onPointerOut(event: PointerEvent) {
+  const onPointerOut = useEffectEvent((event: PointerEvent) => {
     const current = gesture.current;
     if (current?.pointerId === event.pointerId && !event.relatedTarget &&
       !current.element.hasPointerCapture(event.pointerId)) cancel();
-  }
+  });
 
   // Keep tracking within the window even if the browser releases capture mid-gesture.
   useEffect(() => {
@@ -164,13 +197,17 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
     window.addEventListener("pointerup", onPointerUp);
     window.addEventListener("pointercancel", onPointerCancel);
     window.addEventListener("pointerout", onPointerOut);
+    window.addEventListener("scroll", scheduleFrame, true);
+    window.addEventListener("resize", scheduleFrame);
     return () => {
       window.removeEventListener("pointermove", onPointerMove);
       window.removeEventListener("pointerup", onPointerUp);
       window.removeEventListener("pointercancel", onPointerCancel);
       window.removeEventListener("pointerout", onPointerOut);
+      window.removeEventListener("scroll", scheduleFrame, true);
+      window.removeEventListener("resize", scheduleFrame);
     };
-  });
+  }, [scheduleFrame]);
 
   function onClickCapture(event: MouseEvent) {
     if (!gesture.current?.active && (!suppressClick.current || event.detail === 0)) return;
