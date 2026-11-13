@@ -10,7 +10,7 @@ use serde::Serialize;
 
 use crate::{
     database::{self, Album, Ownership},
-    metadata,
+    metadata, storage,
 };
 
 const VERSION_COLUMN: &str = "hakoto_csv_version";
@@ -110,11 +110,9 @@ pub fn export(
     {
         return Err("Choose a file name ending in .csv.".into());
     }
-    let directory = path
-        .parent()
-        .ok_or("Choose a directory for the CSV file.")?;
-    let mut file = tempfile::NamedTempFile::new_in(directory)
-        .map_err(|error| format!("Could not create the CSV: {error}"))?;
+    let path = storage::export_path(path)?;
+    let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
+        .map_err(|_| "Could not create the CSV. Check the destination permissions.")?;
     let count = write_albums(
         &mut file,
         library
@@ -122,12 +120,17 @@ pub fn export(
             .into_iter()
             .chain(library.wishlist.into_iter().filter(|_| include_wishlist)),
     )
-    .map_err(|error| format!("Could not write the CSV: {error}"))?;
+    .map_err(|_| "Could not write the CSV. Check available disk space.")?;
     file.as_file()
         .sync_all()
-        .map_err(|error| format!("Could not finish writing the CSV: {error}"))?;
-    file.persist(path)
-        .map_err(|error| format!("Could not save the CSV: {error}"))?;
+        .map_err(|_| "Could not finish writing the CSV. Check the destination and try again.")?;
+    file.persist_noclobber(path).map_err(|error| {
+        if error.error.kind() == io::ErrorKind::AlreadyExists {
+            "A file already exists at that location. Choose a new CSV filename."
+        } else {
+            "Could not save the CSV. Check the destination permissions."
+        }
+    })?;
     Ok(count)
 }
 
@@ -208,10 +211,16 @@ fn parse(text: &str) -> Result<Vec<Vec<String>>> {
 }
 
 pub fn read(path: &Path) -> Result<String> {
+    storage::validate_selected_path(path)?;
+    let metadata =
+        storage::checked_file(path).map_err(|_| "Choose an accessible, regular CSV file.")?;
+    if metadata.len() > MAX_BYTES {
+        return Err("The CSV must be 32 MB or smaller.".into());
+    }
     let mut bytes = Vec::new();
     File::open(path)
         .and_then(|file| file.take(MAX_BYTES + 1).read_to_end(&mut bytes))
-        .map_err(|error| format!("Could not read the CSV: {error}"))?;
+        .map_err(|_| "Could not read the CSV. Check that the file is accessible.")?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err("The CSV must be 32 MB or smaller.".into());
     }
@@ -333,7 +342,7 @@ pub fn prepare(connection: &Connection, text: &str) -> Result<PreparedImport> {
         }
     }
     let own_format = columns.contains_key(VERSION_COLUMN);
-    let mut existing = Existing::load(connection).map_err(|error| error.to_string())?;
+    let mut existing = Existing::load(connection).map_err(database::database_error)?;
     let mut rows = Vec::new();
     for (index, fields) in records.enumerate() {
         if fields.len() == 1 && fields[0].trim().is_empty() {
@@ -447,8 +456,8 @@ pub fn import(
     }
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
-    let mut existing = Existing::load(&transaction).map_err(|error| error.to_string())?;
+        .map_err(database::database_error)?;
+    let mut existing = Existing::load(&transaction).map_err(database::database_error)?;
     let mut imported = Vec::new();
     for (preview, album) in &prepared.rows {
         let Some(album) = album else {
@@ -468,11 +477,15 @@ pub fn import(
         while album.id.is_empty() || existing.ids.contains(&album.id) {
             album.id = transaction
                 .query_row("SELECT lower(hex(randomblob(16)))", [], |row| row.get(0))
-                .map_err(|error| error.to_string())?;
+                .map_err(database::database_error)?;
         }
-        if database::write_album(&transaction, database::INSERT_ALBUM, &album)
-            .map_err(|error| format!("Could not import record {}: {error}", preview.record))?
-            != 1
+        if database::write_album(&transaction, database::INSERT_ALBUM, &album).map_err(|error| {
+            format!(
+                "Could not import record {}. No albums were imported. {}",
+                preview.record,
+                database::database_error(error)
+            )
+        })? != 1
         {
             return Err(format!(
                 "Could not import record {}. No albums were imported.",
@@ -482,13 +495,51 @@ pub fn import(
         existing.track(&album);
         imported.push(album);
     }
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database::database_error)?;
     Ok(imported)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn export_preserves_existing_files_and_import_rejects_oversized_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("collection.csv");
+        std::fs::write(&path, b"existing file").unwrap();
+        let library = database::AlbumLibrary {
+            owned: vec![],
+            wishlist: vec![],
+        };
+        assert!(
+            export(&path, library, false)
+                .unwrap_err()
+                .contains("already exists")
+        );
+        assert_eq!(std::fs::read(&path).unwrap(), b"existing file");
+
+        File::create(&path).unwrap().set_len(MAX_BYTES + 1).unwrap();
+        assert!(read(&path).unwrap_err().contains("32 MB"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn csv_import_and_export_refuse_symbolic_links() {
+        let directory = tempfile::tempdir().unwrap();
+        let original = directory.path().join("original.csv");
+        let link = directory.path().join("link.csv");
+        std::fs::write(&original, b"original").unwrap();
+        std::os::unix::fs::symlink(&original, &link).unwrap();
+        assert!(read(&link).is_err());
+        let library = database::AlbumLibrary {
+            owned: vec![],
+            wishlist: vec![],
+        };
+        assert!(export(&link, library, false).is_err());
+        assert_eq!(std::fs::read(&original).unwrap(), b"original");
+        assert!(link.symlink_metadata().unwrap().is_symlink());
+    }
 
     #[test]
     fn empty_collection_export_is_a_valid_no_op_import() {
@@ -522,6 +573,7 @@ mod tests {
             1
         );
         assert!(!read(&file).unwrap().contains("＋Song"));
+        let file = source.path().join("collection-with-wishlist.csv");
         assert_eq!(
             export(&file, database::get_album_library(&mut db).unwrap(), true).unwrap(),
             2
@@ -665,12 +717,9 @@ mod tests {
         )
         .unwrap();
         assert!(preview.preview().iter().all(|row| row.error.is_none()));
-        assert!(
-            import(&mut db, &preview, &[])
-                .err()
-                .unwrap()
-                .contains("write blocked")
-        );
+        let error = import(&mut db, &preview, &[]).err().unwrap();
+        assert!(error.contains("Could not import record 3. No albums were imported."));
+        assert!(!error.contains("write blocked"));
         drop(db);
         let db = database::initialize_database(directory.path(), None).unwrap();
         let albums = database::get_albums(&db).unwrap();

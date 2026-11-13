@@ -3,6 +3,8 @@ use std::collections::HashSet;
 use rusqlite::{Connection, OptionalExtension, TransactionBehavior, params};
 use serde::{Deserialize, Serialize};
 
+use crate::{database::database_error, metadata};
+
 type Result<T> = std::result::Result<T, String>;
 
 pub fn migrate(connection: &Connection) -> rusqlite::Result<()> {
@@ -83,17 +85,17 @@ fn read_crates(connection: &Connection, id: Option<i64>) -> rusqlite::Result<Vec
 
 fn read_crate(connection: &Connection, id: i64) -> Result<Crate> {
     read_crates(connection, Some(id))
-        .map_err(|error| error.to_string())?
+        .map_err(database_error)?
         .pop()
         .ok_or_else(|| "This crate no longer exists.".into())
 }
 
 pub fn list(connection: &Connection) -> Result<Vec<Crate>> {
-    read_crates(connection, None).map_err(|error| error.to_string())
+    read_crates(connection, None).map_err(database_error)
 }
 
 fn require_write(rows: rusqlite::Result<usize>, message: &str) -> Result<()> {
-    match rows.map_err(|error| error.to_string())? {
+    match rows.map_err(database_error)? {
         1 => Ok(()),
         _ => Err(message.into()),
     }
@@ -104,18 +106,39 @@ pub fn save(
     id: Option<i64>,
     settings: CrateSettings,
 ) -> Result<Crate> {
-    let name = settings.name.trim();
-    if name.is_empty() || name.chars().any(char::is_control) {
-        return Err("Enter a crate name without control characters.".into());
+    if let Some(id) = id {
+        metadata::positive_id(id, "Crate ID")?;
     }
+    let name = settings.name.trim();
     let description = settings
         .description
         .as_deref()
         .map(str::trim)
         .filter(|text| !text.is_empty());
+    let name_validation = metadata::required_text(name, 120, "Crate name");
+    let invalid_description = description.is_some_and(|text| {
+        text.encode_utf16().take(2001).count() > 2000
+            || text
+                .chars()
+                .any(|character| character.is_control() && !matches!(character, '\r' | '\n' | '\t'))
+    });
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
+    if name_validation.is_err() || invalid_description {
+        // Older crates may have descriptions and names that exceed today's limits.
+        let existing = id.map(|id| read_crate(&transaction, id)).transpose()?;
+        if existing.as_ref().is_none_or(|item| item.name != name) {
+            name_validation?;
+        }
+        if invalid_description
+            && existing
+                .as_ref()
+                .is_none_or(|item| item.description.as_deref() != description)
+        {
+            return Err("Crate description must be 2,000 characters or fewer and contain no control characters other than line breaks and tabs.".into());
+        }
+    }
     let id = if let Some(id) = id {
         require_write(
             transaction.execute(
@@ -147,7 +170,7 @@ pub fn save(
         id
     };
     let updated = read_crate(&transaction, id)?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database_error)?;
     Ok(updated)
 }
 
@@ -174,7 +197,7 @@ fn edit_selection(
         )?;
     }
     let existing: HashSet<_> = current.iter().map(String::as_str).collect();
-    let next = next_position(connection, id).map_err(|error| error.to_string())?;
+    let next = next_position(connection, id).map_err(database_error)?;
     for (position, album_id) in
         (next..).zip(selected.iter().filter(|id| !existing.contains(id.as_str())))
     {
@@ -184,6 +207,7 @@ fn edit_selection(
 }
 
 pub fn delete(connection: &Connection, id: i64) -> Result<()> {
+    metadata::positive_id(id, "Crate ID")?;
     require_write(
         connection.execute("DELETE FROM crates WHERE id = ?1", [id]),
         "Could not delete this crate.",
@@ -195,12 +219,13 @@ fn edit_membership(
     id: i64,
     edit: impl FnOnce(&Connection) -> Result<()>,
 ) -> Result<Crate> {
+    metadata::positive_id(id, "Crate ID")?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     edit(&transaction)?;
     let updated = read_crate(&transaction, id)?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database_error)?;
     Ok(updated)
 }
 
@@ -213,6 +238,7 @@ fn next_position(connection: &Connection, id: i64) -> rusqlite::Result<i64> {
 }
 
 fn insert_album(connection: &Connection, id: i64, album_id: &str, position: i64) -> Result<()> {
+    metadata::album_reference(connection, album_id)?;
     require_write(
         connection.execute(
             "INSERT INTO crate_albums (crate_id, album_id, position)
@@ -226,7 +252,7 @@ fn insert_album(connection: &Connection, id: i64, album_id: &str, position: i64)
 
 pub fn add_album(connection: &mut Connection, id: i64, album_id: &str) -> Result<Crate> {
     edit_membership(connection, id, |transaction| {
-        let position = next_position(transaction, id).map_err(|error| error.to_string())?;
+        let position = next_position(transaction, id).map_err(database_error)?;
         insert_album(transaction, id, album_id, position)
     })
 }
@@ -242,9 +268,11 @@ pub fn remove_album(
     id: i64,
     album_id: &str,
 ) -> Result<RemovedCrateAlbum> {
+    metadata::positive_id(id, "Crate ID")?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
+    metadata::album_reference(&transaction, album_id)?;
     let position = transaction
         .query_row(
             "DELETE FROM crate_albums WHERE crate_id = ?1 AND album_id = ?2 RETURNING position",
@@ -252,10 +280,10 @@ pub fn remove_album(
             |row| row.get(0),
         )
         .optional()
-        .map_err(|error| error.to_string())?
+        .map_err(database_error)?
         .ok_or("This album is no longer in the crate.")?;
     let updated = read_crate(&transaction, id)?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database_error)?;
     Ok(RemovedCrateAlbum { updated, position })
 }
 
@@ -266,6 +294,9 @@ pub fn undo_remove_album(
     position: i64,
     expected: &[String],
 ) -> Result<()> {
+    if !(0..=(1_i64 << 53) - 1).contains(&position) {
+        return Err("The saved crate position is out of range.".into());
+    }
     edit_membership(connection, id, |transaction| {
         let current = read_crate(transaction, id)?;
         if current.album_ids != expected {
@@ -283,6 +314,7 @@ pub fn move_album(
     direction: MoveDirection,
 ) -> Result<Crate> {
     edit_membership(connection, id, |transaction| {
+        metadata::album_reference(transaction, album_id)?;
         let position: i64 = transaction
             .query_row(
                 "SELECT position FROM crate_albums WHERE crate_id = ?1 AND album_id = ?2",
@@ -290,7 +322,7 @@ pub fn move_album(
                 |row| row.get(0),
             )
             .optional()
-            .map_err(|error| error.to_string())?
+            .map_err(database_error)?
             .ok_or("This album is no longer in the crate.")?;
         let neighbor_query = match direction {
             MoveDirection::Up => {
@@ -303,9 +335,9 @@ pub fn move_album(
         let neighbor: Option<i64> = transaction
             .query_row(neighbor_query, params![id, position], |row| row.get(0))
             .optional()
-            .map_err(|error| error.to_string())?;
+            .map_err(database_error)?;
         if let Some(neighbor) = neighbor {
-            let temporary = next_position(transaction, id).map_err(|error| error.to_string())?;
+            let temporary = next_position(transaction, id).map_err(database_error)?;
             for (from, to) in [
                 (position, temporary),
                 (neighbor, position),
@@ -354,7 +386,7 @@ pub fn restore_membership(
             [membership.crate_id],
             |row| row.get(0),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     if !exists {
         return Ok(());
     }
@@ -364,9 +396,9 @@ pub fn restore_membership(
             params![membership.crate_id, membership.position],
             |row| row.get(0),
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     let position = if occupied {
-        next_position(connection, membership.crate_id).map_err(|error| error.to_string())?
+        next_position(connection, membership.crate_id).map_err(database_error)?
     } else {
         membership.position
     };
@@ -403,6 +435,27 @@ mod tests {
              ('wish', 'Wish', 'Artist', '', 'wishlist');",
             )
             .unwrap();
+    }
+
+    #[test]
+    fn crate_metadata_limits_preserve_unchanged_legacy_fields() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        let name = "🎵".repeat(61);
+        let description = "a".repeat(2001);
+        assert!(save(&mut db, None, settings(&name, None)).is_err());
+        assert!(save(&mut db, None, settings("Crate", Some(&description))).is_err());
+        assert!(save(&mut db, None, settings("Crate", Some("Bad\0text"))).is_err());
+        assert!(list(&db).unwrap().is_empty());
+
+        db.execute(
+            "INSERT INTO crates (id, name, description) VALUES (1, ?1, ?2)",
+            params![name, description],
+        )
+        .unwrap();
+        let updated = save(&mut db, Some(1), settings("Renamed", Some(&description))).unwrap();
+        assert_eq!(updated.name, "Renamed");
+        assert_eq!(updated.description.as_deref(), Some(description.as_str()));
     }
 
     #[test]

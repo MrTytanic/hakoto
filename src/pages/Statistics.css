@@ -1,6 +1,6 @@
 .statistics-page {
   display: grid;
-  gap: 24px;
+  gap: var(--page-heading-gap);
   min-width: 0;
 }
 
@@ -21,11 +21,6 @@
   display: grid;
   gap: 14px;
   min-width: 0;
-}
-
-.statistics-section h2 {
-  margin: 0;
-  font-size: calc(19px * var(--text-scale));
 }
 
 .statistics-formats,

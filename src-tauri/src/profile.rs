@@ -4,7 +4,7 @@ use rusqlite::{Connection, TransactionBehavior};
 
 use crate::{
     artwork,
-    database::{ArtworkChange, image_filename},
+    database::{ArtworkChange, database_error, image_filename},
 };
 
 pub const IMAGE_DIRECTORY: &str = "profile-images";
@@ -42,13 +42,17 @@ pub fn get(connection: &Connection) -> rusqlite::Result<Profile> {
     )
 }
 
-pub fn set_display_name(connection: &Connection, name: &str) -> Result<(), Box<dyn Error>> {
-    if name.encode_utf16().count() > 40 || name.chars().any(char::is_control) {
+pub fn set_display_name(connection: &Connection, name: &str) -> Result<(), String> {
+    if name.encode_utf16().take(41).count() > 40 || name.chars().any(char::is_control) {
         return Err(
             "Display name must be 40 characters or fewer and contain no control characters.".into(),
         );
     }
-    if connection.execute("UPDATE profile SET display_name = ?1 WHERE id = 1", [name])? != 1 {
+    if connection
+        .execute("UPDATE profile SET display_name = ?1 WHERE id = 1", [name])
+        .map_err(database_error)?
+        != 1
+    {
         return Err("Profile could not be updated.".into());
     }
     Ok(())
@@ -58,13 +62,22 @@ pub fn set_picture(
     connection: &mut Connection,
     app_dir: &Path,
     change: ArtworkChange,
-) -> Result<Option<String>, Box<dyn Error>> {
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+) -> Result<Option<String>, String> {
+    let transaction = connection
+        .transaction_with_behavior(TransactionBehavior::Immediate)
+        .map_err(database_error)?;
     let picture = match change {
         ArtworkChange::Remove => None,
         ArtworkChange::Replace(bytes) => {
-            let name = image_filename(&transaction)?;
-            artwork::write_in(app_dir, IMAGE_DIRECTORY, &name, &bytes)?;
+            if !artwork::validate(&bytes) {
+                return Err(
+                    "Choose a valid WebP profile image up to 500 × 500 pixels and 1 MiB.".into(),
+                );
+            }
+            let name = image_filename(&transaction).map_err(database_error)?;
+            artwork::write_in(app_dir, IMAGE_DIRECTORY, &name, &bytes).map_err(
+                |_| "Could not save the profile image. Check storage permissions and free space.",
+            )?;
             Some(name)
         }
     };
@@ -82,7 +95,7 @@ pub fn set_picture(
     if let Err(error) = clean_orphaned_images(connection, app_dir) {
         eprintln!("Could not clean up profile images: {error}");
     }
-    result?;
+    result.map_err(database_error)?;
     Ok(picture)
 }
 
@@ -103,10 +116,10 @@ pub fn clean_orphaned_images(
     let current = get(&transaction)?.profile_picture;
     for entry in fs::read_dir(directory)? {
         let entry = entry?;
-        if entry.file_type()?.is_file()
-            && let Some(name) = entry.file_name().to_str()
+        if let Some(name) = entry.file_name().to_str()
             && artwork::is_filename(name)
             && current.as_deref() != Some(name)
+            && crate::storage::checked_file(&entry.path()).is_ok()
             && let Err(error) = fs::remove_file(entry.path())
             && error.kind() != io::ErrorKind::NotFound
         {

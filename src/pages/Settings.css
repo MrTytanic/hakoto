@@ -7,22 +7,18 @@
 
 .settings-header {
   padding-bottom: 20px;
-  margin-bottom: 24px;
+  margin-bottom: var(--page-heading-gap);
   border-bottom: 1px solid var(--border-subtle);
 }
 
-.settings-header .profile-header h1 {
-  margin: 0 0 6px;
-  font-weight: 650;
-}
-
-.settings-header p,
 .settings-section-heading p,
 .settings-card p {
   margin: 0;
   color: var(--text-muted);
   font-size: calc(13px * var(--text-scale));
 }
+
+.settings-section-heading p { margin-top: 6px; }
 
 .settings-section {
   display: flex;
@@ -36,18 +32,11 @@
   border-top: 1px solid var(--border-subtle);
 }
 
-.settings-section-heading h2 {
-  margin: 0 0 6px;
-  font-size: calc(17px * var(--text-scale));
-  font-weight: 600;
-  color: var(--text);
-}
-
 /* Card & fields */
 .settings-card {
   padding: 20px;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--card-radius);
   background: var(--surface);
 }
 
@@ -87,10 +76,10 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 38px;
+  min-height: var(--control-height);
   padding: 0 12px;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--control-radius);
   background: var(--canvas);
   color: var(--text);
   cursor: pointer;
@@ -119,29 +108,11 @@
 
 .settings-field input[type="text"],
 .settings-field select {
-  width: 100%;
   max-width: 320px;
-  height: 38px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  outline: none;
-  background: var(--canvas);
-  color: var(--text-strong);
-  font: inherit;
-  font-size: calc(14px * var(--text-scale));
-  transition: border-color var(--animation-short);
 }
 
 .settings-field input[type="text"]::placeholder {
   color: var(--text-subtle);
-}
-
-.settings-field input[type="text"]:focus,
-.settings-field select:focus-visible {
-  border-color: var(--focus);
-  outline: 2px solid var(--focus);
-  outline-offset: 2px;
 }
 
 .settings-motion {
@@ -193,37 +164,10 @@
   gap: 8px;
 }
 
-.settings-upload,
-.settings-remove {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  min-height: 34px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 7px;
-  background: var(--surface-muted);
-  color: var(--text);
-  font: inherit;
-  font-size: calc(13px * var(--text-scale));
-  font-weight: 500;
-  cursor: pointer;
-  transition: background var(--animation-short);
-}
-
-.settings-upload:hover,
-.settings-remove:hover {
-  background: var(--surface-hover);
-}
-
 .settings-upload:focus-within,
-.settings-upload:focus-visible,
-.settings-remove:focus-visible,
-.settings-theme-options input:focus-visible,
-.settings-checkbox input:focus-visible {
+.settings-theme-options label:focus-within {
   outline: 2px solid var(--focus);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 .settings-remove {
@@ -305,7 +249,7 @@
   width: 100%;
   padding: 14px;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--card-radius);
   background: var(--surface-muted);
 }
 

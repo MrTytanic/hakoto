@@ -10,7 +10,7 @@ use rusqlite::{
     types::{FromSql, FromSqlError, FromSqlResult, ValueRef},
 };
 
-use crate::{artwork, profile, shelves};
+use crate::{artwork, metadata, profile, shelves};
 
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 pub const DATABASE_NAME: &str = "hakoto.db";
@@ -28,11 +28,40 @@ const ALBUM_COLUMNS: &str = "id, title, artist, format, release_year, artwork, f
     pinned, date_added, condition, record_type, disc_size, original_release_year, date_acquired,
     notes, ownership";
 
+pub(crate) fn database_error(error: rusqlite::Error) -> String {
+    use rusqlite::ErrorCode;
+
+    match error.sqlite_error_code() {
+        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => {
+            "The collection database is busy. Try again."
+        }
+        Some(ErrorCode::ReadOnly | ErrorCode::PermissionDenied) => {
+            "Hakoto cannot write to the collection database. Check its permissions."
+        }
+        Some(ErrorCode::DiskFull) => "There is not enough disk space to save the change.",
+        Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase) => {
+            "The collection database could not be read. Check your backups."
+        }
+        Some(ErrorCode::ConstraintViolation) => {
+            "This change conflicts with existing collection data."
+        }
+        _ => "The collection database operation could not be completed.",
+    }
+    .into()
+}
+
 pub fn initialize_database(
     app_dir: &Path,
     legacy_dir: Option<&Path>,
 ) -> Result<Connection, Box<dyn Error>> {
-    let mut connection = Connection::open(app_dir.join(DATABASE_NAME))?;
+    let mut connection = Connection::open_with_flags(
+        app_dir.join(DATABASE_NAME),
+        OpenFlags::SQLITE_OPEN_READ_WRITE
+            | OpenFlags::SQLITE_OPEN_CREATE
+            | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    connection.pragma_update(None, "trusted_schema", false)?;
+    connection.pragma_update(None, "foreign_keys", true)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let already_initialized: bool = transaction.query_row(
         "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'albums')",
@@ -120,7 +149,11 @@ fn import_legacy_albums(
         return Ok(());
     }
 
-    let mut source = Connection::open_with_flags(legacy_path, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let mut source = Connection::open_with_flags(
+        legacy_path,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
+    source.pragma_update(None, "trusted_schema", false)?;
     let snapshot = source.transaction()?;
     let mut imported_artwork = HashMap::new();
     for mut album in get_albums(&snapshot)? {
@@ -282,6 +315,14 @@ fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
     })
 }
 
+pub(crate) fn verify_album_rows(connection: &Connection) -> rusqlite::Result<()> {
+    let mut statement = connection.prepare(&format!("SELECT {ALBUM_COLUMNS} FROM albums"))?;
+    for album in statement.query_map([], read_album)? {
+        album?;
+    }
+    Ok(())
+}
+
 pub fn get_album(connection: &Connection, id: &str) -> rusqlite::Result<Option<Album>> {
     connection
         .query_row(
@@ -327,25 +368,33 @@ pub fn acquire_album(
     format: &str,
     date_acquired: &str,
 ) -> Result<Album, String> {
-    let format = crate::metadata::validate_format(format, Ownership::Owned)?;
+    let format = metadata::validate_format(format, Ownership::Owned)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
-    crate::metadata::validate_acquisition_date(&transaction, date_acquired)?;
+        .map_err(database_error)?;
+    metadata::validate_acquisition_date(&transaction, date_acquired)?;
+    metadata::album_reference(&transaction, id)?;
+    let wishlist = get_album(&transaction, id)
+        .map_err(database_error)?
+        .filter(|album| album.ownership == Ownership::Wishlist)
+        .ok_or("Could not acquire this album. It may no longer be on your wishlist.")?;
+    if !metadata::vinyl_fields_match_format(&wishlist, format) {
+        return Err("Choose a vinyl format or remove the vinyl details from this wishlist album before acquiring it.".into());
+    }
     let updated = transaction
         .execute(
             "UPDATE albums SET ownership = 'owned', format = ?2, date_acquired = ?3
              WHERE id = ?1 AND ownership = 'wishlist'",
             params![id, format, date_acquired],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     if updated != 1 {
         return Err("Could not acquire this album. It may no longer be on your wishlist.".into());
     }
     let album = get_album(&transaction, id)
-        .map_err(|error| error.to_string())?
+        .map_err(database_error)?
         .ok_or("Album no longer exists.")?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database_error)?;
     Ok(album)
 }
 
@@ -359,13 +408,14 @@ fn store_album(
     // The writer lock also serializes startup cleanup with artwork writes in other app instances.
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     let existing = if insert {
         None
     } else {
+        metadata::album_reference(&transaction, &album.id)?;
         Some(
             get_album(&transaction, &album.id)
-                .map_err(|error| error.to_string())?
+                .map_err(database_error)?
                 .ok_or("Album no longer exists.")?,
         )
     };
@@ -375,14 +425,14 @@ fn store_album(
     {
         return Err("Album ownership has changed. Reopen the album before editing it.".into());
     }
-    crate::metadata::validate(&transaction, &mut album, existing.as_ref())?;
+    metadata::validate(&transaction, &mut album, existing.as_ref())?;
     let previous = existing.as_ref().and_then(|old| old.artwork.clone());
     album.date_added = if let Some(existing) = existing {
         existing.date_added
     } else {
         transaction
             .query_row("SELECT date('now')", [], |row| row.get(0))
-            .map_err(|error| error.to_string())?
+            .map_err(database_error)?
     };
 
     let mut new_file = None;
@@ -390,8 +440,13 @@ fn store_album(
         None => previous.clone(),
         Some(ArtworkChange::Remove) => None,
         Some(ArtworkChange::Replace(bytes)) => {
-            let name =
-                store_artwork(&transaction, app_dir, &bytes).map_err(|error| error.to_string())?;
+            if !artwork::validate(&bytes) {
+                return Err("Choose valid WebP artwork up to 500 × 500 pixels and 1 MiB.".into());
+            }
+            let name = image_filename(&transaction).map_err(database_error)?;
+            artwork::write(app_dir, &name, &bytes).map_err(
+                |_| "Could not save the album artwork. Check storage permissions and free space.",
+            )?;
             new_file = Some(name.clone());
             Some(name)
         }
@@ -417,7 +472,7 @@ fn store_album(
     if let Err(error) = result {
         // The transaction has rolled back. Check references even if commit reported an error.
         cleanup(connection, app_dir, new_file.as_deref());
-        return Err(error.to_string());
+        return Err(database_error(error));
     }
     if previous != album.artwork {
         cleanup(connection, app_dir, previous.as_deref());
@@ -476,20 +531,24 @@ pub fn delete_album(
 ) -> Result<usize, String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
+    metadata::album_reference(&transaction, id)?;
     let Some(previous) = transaction
         .query_row("SELECT artwork FROM albums WHERE id = ?1", [id], |row| {
             row.get::<_, Option<String>>(0)
         })
         .optional()
-        .map_err(|error| error.to_string())?
+        .map_err(database_error)?
     else {
         return Ok(0);
     };
     let rows = transaction
         .execute("DELETE FROM albums WHERE id = ?1", [id])
-        .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
+    if rows != 1 {
+        return Err("Album deletion was not completed. Nothing was changed.".into());
+    }
+    transaction.commit().map_err(database_error)?;
     cleanup(connection, app_dir, previous.as_deref());
     Ok(rows)
 }
@@ -526,11 +585,12 @@ fn remove_if_unreferenced(
         )
         .map_err(|error| error.to_string())?;
 
-    if !referenced
-        && let Err(error) = fs::remove_file(directory.join(name))
-        && error.kind() != io::ErrorKind::NotFound
-    {
-        return Err(error.to_string());
+    let path = directory.join(name);
+    if !referenced && crate::storage::checked_file(&path).is_ok() {
+        match fs::remove_file(path) {
+            Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.to_string()),
+            _ => {}
+        }
     }
     Ok(())
 }
@@ -642,6 +702,60 @@ mod tests {
         assert!(artwork::read(path, &name).is_some());
         delete_album(&mut db, path, "shared").unwrap();
         assert_eq!(fs::read_dir(path.join("artwork")).unwrap().count(), 0);
+    }
+
+    #[test]
+    fn undo_restores_album_and_artwork_after_its_shelf_and_crate_are_deleted() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let saved = save_album(&mut db, path, album("recover"), Some(COVER.to_vec())).unwrap();
+        let copy = save_album(&mut db, path, album("other-copy"), None).unwrap();
+        assert_eq!(
+            (&saved.title, &saved.artist, &saved.format),
+            (&copy.title, &copy.artist, &copy.format)
+        );
+        db.execute_batch(
+            "INSERT INTO shelves VALUES (1, 'Deleted shelf', 1, 2, 'vertical'),
+                                        (2, 'Retained shelf', 1, 1, 'vertical');
+             INSERT INTO shelf_placements VALUES (1, 0, 0, 'recover'), (1, 0, 1, 'other-copy'),
+                                                (2, 0, 0, 'recover');
+             INSERT INTO crates VALUES (1, 'Deleted crate', NULL), (2, 'Retained crate', NULL);
+             INSERT INTO crate_albums VALUES (1, 'recover', 0), (1, 'other-copy', 1),
+                                             (2, 'recover', 0);",
+        )
+        .unwrap();
+        let token = crate::undo::delete(&mut db, "recover").unwrap();
+        shelves::delete_shelf(&db, 1).unwrap();
+        crate::crates::delete(&db, 1).unwrap();
+        assert!(get_album(&db, &copy.id).unwrap().is_some());
+        drop(db);
+
+        let mut db = initialize_database(path, None).unwrap();
+        clean_orphaned_artwork(&mut db, path).unwrap();
+        let restored = crate::undo::restore(&mut db, path, &token).unwrap();
+        assert_eq!(
+            serde_json::to_value(&restored).unwrap(),
+            serde_json::to_value(saved).unwrap()
+        );
+        assert_eq!(
+            artwork::read(path, restored.artwork.as_deref().unwrap()).as_deref(),
+            Some(COVER)
+        );
+        assert_eq!(
+            shelves::load_shelf(&mut db, 2).unwrap().placements[0].album_id,
+            "recover"
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT album_id FROM crate_albums WHERE crate_id = 2",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "recover"
+        );
+        assert!(crate::undo::pending(&db).unwrap().is_empty());
     }
 
     #[test]
@@ -1085,7 +1199,7 @@ mod tests {
     #[test]
     fn migrates_text_years_with_shelf_foreign_keys_and_legacy_undo_records() {
         let directory = TestDirectory::new();
-        let mut db = Connection::open(directory.0.join(DATABASE_NAME)).unwrap();
+        let db = Connection::open(directory.0.join(DATABASE_NAME)).unwrap();
         db.execute_batch(
             "CREATE TABLE albums (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, artist TEXT NOT NULL, format TEXT NOT NULL,
@@ -1115,9 +1229,6 @@ mod tests {
             [archived.to_string()],
         )
         .unwrap();
-        let transaction = db.transaction().unwrap();
-        migrate_album_columns(&transaction).unwrap();
-        transaction.commit().unwrap();
         drop(db);
 
         let mut db = initialize_database(&directory.0, None).unwrap();
@@ -1261,6 +1372,71 @@ mod tests {
         db.execute_batch("DROP TRIGGER fail_acquisition;").unwrap();
         acquire_album(&mut db, "wish", "Vinyl", "2024-02-29").unwrap();
         assert_eq!(db.execute(placement, []).unwrap(), 1);
+    }
+
+    #[test]
+    fn acquisition_rejects_an_incompatible_format_without_losing_vinyl_details() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let mut candidate = album("wishlist-vinyl");
+        candidate.ownership = Ownership::Wishlist;
+        candidate.format = "Vinyl".into();
+        candidate.record_type = Some("LP".into());
+        candidate.disc_size = Some("12".into());
+        save_album(&mut db, path, candidate, None).unwrap();
+
+        let id = "wishlist-vinyl";
+        let error = acquire_album(&mut db, id, "CD", "2024-02-29")
+            .err()
+            .unwrap();
+        assert!(error.contains("vinyl details"));
+        let unchanged = get_album(&db, id).unwrap().unwrap();
+        assert_eq!(unchanged.ownership, Ownership::Wishlist);
+        assert_eq!(unchanged.format, "Vinyl");
+        assert_eq!(unchanged.record_type.as_deref(), Some("LP"));
+        assert_eq!(unchanged.disc_size.as_deref(), Some("12"));
+        assert!(unchanged.date_acquired.is_none());
+        assert_eq!(
+            acquire_album(&mut db, id, "Vinyl", "2024-02-29")
+                .unwrap()
+                .ownership,
+            Ownership::Owned
+        );
+    }
+
+    #[test]
+    fn album_mutations_validate_unknown_ids_and_hide_database_failure_details() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let id = "Björk'; DELETE FROM albums; --";
+        save_album(&mut db, path, album(id), None).unwrap();
+        assert!(
+            delete_album(&mut db, path, "\0")
+                .unwrap_err()
+                .contains("Album ID")
+        );
+        db.execute_batch(
+            "CREATE TRIGGER reject_album_delete BEFORE DELETE ON albums
+             BEGIN SELECT RAISE(ABORT, 'private local database detail'); END;",
+        )
+        .unwrap();
+        assert_eq!(
+            delete_album(&mut db, path, id).unwrap_err(),
+            "This change conflicts with existing collection data."
+        );
+        assert!(get_album(&db, id).unwrap().is_some());
+        db.execute_batch("DROP TRIGGER reject_album_delete;")
+            .unwrap();
+
+        let legacy_id = "x".repeat(129);
+        db.execute(
+            "UPDATE albums SET id = ?1 WHERE id = ?2",
+            params![legacy_id, id],
+        )
+        .unwrap();
+        assert_eq!(delete_album(&mut db, path, &legacy_id).unwrap(), 1);
     }
 
     #[test]
@@ -1578,6 +1754,14 @@ mod tests {
         );
 
         let corrupt = app_dir.join("artwork").join(name);
+        fs::File::create(&corrupt)
+            .unwrap()
+            .set_len(artwork::MAX_BYTES as u64 + 1)
+            .unwrap();
+        assert_eq!(
+            artwork::read_checked(app_dir, name).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
         fs::write(&corrupt, b"invalid artwork").unwrap();
         assert_eq!(
             artwork::read_checked(app_dir, name).unwrap_err().kind(),
@@ -1585,5 +1769,32 @@ mod tests {
         );
         assert!(artwork::write(app_dir, name, COVER).is_err());
         assert_eq!(fs::read(corrupt).unwrap(), b"invalid artwork");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn managed_image_reads_writes_and_cleanup_leave_link_targets_untouched() {
+        use std::os::unix::fs::symlink;
+
+        let directory = TestDirectory::new();
+        let app_dir = &directory.0;
+        let mut db = initialize_database(app_dir, None).unwrap();
+        let outside = app_dir.join("outside");
+        fs::create_dir(&outside).unwrap();
+        let name = "0123456789abcdef0123456789abcdef.webp";
+        fs::write(outside.join(name), COVER).unwrap();
+        let artwork_dir = app_dir.join("artwork");
+        symlink(&outside, &artwork_dir).unwrap();
+        assert!(artwork::read_checked(app_dir, name).is_err());
+        assert!(artwork::write(app_dir, name, COVER).is_err());
+        assert!(clean_orphaned_artwork(&mut db, app_dir).is_err());
+
+        fs::create_dir(app_dir.join(profile::IMAGE_DIRECTORY)).unwrap();
+        let picture = app_dir.join(profile::IMAGE_DIRECTORY).join(name);
+        symlink(outside.join(name), &picture).unwrap();
+        assert!(profile::read_image(app_dir, name).is_none());
+        profile::clean_orphaned_images(&mut db, app_dir).unwrap();
+        assert!(picture.symlink_metadata().unwrap().is_symlink());
+        assert_eq!(fs::read(outside.join(name)).unwrap(), COVER);
     }
 }

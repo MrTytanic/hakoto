@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'none'; script-src 'self' 'wasm-unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' blob: data: artwork: profile-image: http://artwork.localhost https://artwork.localhost http://profile-image.localhost https://profile-image.localhost; connect-src 'self' ipc: http://ipc.localhost https://ipc.localhost; font-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
     }
   },
   "bundle": {

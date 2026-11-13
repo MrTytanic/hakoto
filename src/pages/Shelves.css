@@ -1,7 +1,7 @@
 .shelves-page {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: clamp(18px, 4vw, 30px);
+  gap: var(--page-heading-gap);
 }
 
 .shelf-workspace-heading,
@@ -17,13 +17,6 @@
   margin-bottom: 12px;
 }
 
-.shelf-workspace-heading h2,
-.shelf-collection .collection-top h2 {
-  margin: 0;
-  font-size: calc(19px * var(--text-scale));
-  font-weight: 650;
-}
-
 .shelf-tools {
   align-items: flex-end;
   margin-bottom: 10px;
@@ -33,10 +26,6 @@
   flex: 1 1 190px;
   min-width: 0;
   margin: 0;
-}
-
-.shelf-tools button {
-  min-height: 40px;
 }
 
 .shelf-workspace .shelf-dimensions {
@@ -79,9 +68,9 @@
   text-align: center;
 }
 
-.shelf-message h3 {
-  margin: 0;
-  font-size: calc(15px * var(--text-scale));
+.shelf-message.collection-empty {
+  min-height: 220px;
+  gap: 12px;
 }
 
 .shelf-message p,

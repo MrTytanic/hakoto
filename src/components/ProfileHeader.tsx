@@ -2,6 +2,7 @@ import { UserRound } from "lucide-react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { ArtworkImage } from "./Artwork";
 import type { Profile } from "../types/Profile";
+import type { Ref } from "react";
 import "./ProfileHeader.css";
 
 export function ProfileAvatar({
@@ -25,11 +26,13 @@ export function ProfileAvatar({
 export default function ProfileHeader({
   profile,
   title,
-  description
+  description,
+  headingRef
 }: {
   profile: Profile;
   title: string;
   description?: string;
+  headingRef?: Ref<HTMLHeadingElement>;
 }) {
   const name = profile.displayName.trim();
 
@@ -37,7 +40,7 @@ export default function ProfileHeader({
     <header className="profile-header">
       <ProfileAvatar picture={profile.profilePicture} />
       <div className="profile-header-text">
-        <h1>{name ? `${name}'s ${title}` : `Your ${title}`}</h1>
+        <h1 ref={headingRef} tabIndex={headingRef ? -1 : undefined}>{name ? `${name}'s ${title}` : `Your ${title}`}</h1>
         {description && <p>{description}</p>}
       </div>
     </header>

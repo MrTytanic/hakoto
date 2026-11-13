@@ -2,7 +2,7 @@
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertCircle, Bookmark, Disc3, Plus, SlidersHorizontal, X } from "lucide-react";
-import { ProfileAvatar } from "../components/ProfileHeader";
+import ProfileHeader from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
 import { albumFormats } from "../constants/albumFormats";
@@ -283,16 +283,8 @@ function Collection({
   return (
     <div className="collection-page">
       <div className="collection-top">
-        {embedded ? <h2 id="shelf-album-collection-title">Album Collection</h2> : (
-          <div className="collection-header">
-            <ProfileAvatar picture={profile.profilePicture} />
-
-            <h1>
-              {profile.displayName.trim()
-                ? `${profile.displayName.trim()}'s ${pageTitle}`
-                : `Your ${pageTitle}`}
-            </h1>
-          </div>
+        {embedded ? <h2 className="section-title" id="shelf-album-collection-title">Album Collection</h2> : (
+          <ProfileHeader profile={profile} title={pageTitle} />
         )}
 
         <button
@@ -302,7 +294,7 @@ function Collection({
           disabled={loadStatus !== "ready"}
           onClick={() => setIsModalOpen(true)}
         >
-          <Plus size={17} />
+          <Plus size={16} aria-hidden="true" />
           Add Album
         </button>
       </div>
@@ -435,7 +427,8 @@ function Collection({
 
             <button
               type="button"
-              aria-label="Close add album dialog"
+              className="modal-close"
+                aria-label="Close add album dialog"
               onClick={closeAddModal}
               disabled={isSaving}
             >

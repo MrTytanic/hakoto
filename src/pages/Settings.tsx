@@ -77,7 +77,7 @@ function ProfileSettings({
 
           <div className="settings-avatar-controls">
             <label className="settings-upload">
-              <Upload size={15} aria-hidden="true" /> {isSavingPicture ? "Saving picture…" : "Upload Image"}
+              <Upload size={16} aria-hidden="true" /> {isSavingPicture ? "Saving picture…" : "Upload Image"}
               <input
                 id="profile-picture"
                 className="settings-file-input"
@@ -100,7 +100,7 @@ function ProfileSettings({
                 disabled={isSavingPicture}
                 onClick={() => onProfilePictureChange(null)}
               >
-                <Trash2 size={15} aria-hidden="true" /> Remove
+                <Trash2 size={16} aria-hidden="true" /> Remove
               </button>
             )}
           </div>
@@ -127,7 +127,7 @@ function Settings({
 
       <section className="settings-section" aria-labelledby="settings-profile">
         <div className="settings-section-heading">
-          <h2 id="settings-profile">Profile</h2>
+          <h2 className="section-title" id="settings-profile">Profile</h2>
           <p>Customize your display name and picture.</p>
         </div>
         <ProfileSettings {...profileSettings} />
@@ -135,7 +135,7 @@ function Settings({
 
       <section className="settings-section" aria-labelledby="settings-appearance">
         <div className="settings-section-heading">
-          <h2 id="settings-appearance">Appearance</h2>
+          <h2 className="section-title" id="settings-appearance">Appearance</h2>
           <p>Choose how Hakoto looks on this device.</p>
         </div>
         <div className="settings-card">
@@ -162,7 +162,7 @@ function Settings({
 
       <section className="settings-section" aria-labelledby="settings-collection">
         <div className="settings-section-heading">
-          <h2 id="settings-collection">Collection</h2>
+          <h2 className="section-title" id="settings-collection">Collection</h2>
           <p>Find and organize your albums.</p>
         </div>
         <div className="settings-card">
@@ -183,7 +183,7 @@ function Settings({
 
       <section className="settings-section" aria-labelledby="settings-accessibility">
         <div className="settings-section-heading">
-          <h2 id="settings-accessibility">Accessibility</h2>
+          <h2 className="section-title" id="settings-accessibility">Accessibility</h2>
           <p>Adjust text size and motion on this device.</p>
         </div>
         <div className="settings-card">
@@ -219,7 +219,7 @@ function Settings({
 
       <section className="settings-section" aria-labelledby="settings-storage">
         <div className="settings-section-heading">
-          <h2 id="settings-storage">Storage</h2>
+          <h2 className="section-title" id="settings-storage">Storage</h2>
           <p>See how Hakoto stores your data.</p>
         </div>
         <StorageSettings profilePicture={profileSettings.profile.profilePicture} onAlbumsImported={onAlbumsImported} />

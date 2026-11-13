@@ -6,6 +6,7 @@ import type { Album } from "./types/Album";
 import type { ToastData } from "./components/toast/Toast";
 import { alphabeticalDividersPreference, animationDurationPreference, animationsPreference, textScalePreference, resolveTheme, systemThemeQuery, themePreference, type ThemePreference } from "./settings";
 import "./App.css";
+import "./ui.css";
 
 import Sidebar from "./components/Sidebar/Sidebar";
 import Toast from "./components/toast/Toast";

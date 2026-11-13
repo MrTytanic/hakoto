@@ -13,9 +13,9 @@ use tempfile::TempDir;
 use zip::{CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOptions};
 
 use crate::{
-    artwork, crates,
+    artwork,
     database::{self, DATABASE_NAME},
-    profile, shelves,
+    profile,
     storage::{self, IMAGE_FOLDERS, Storage},
 };
 
@@ -25,6 +25,7 @@ const SETTINGS: &str = "settings.json";
 const RESTORE_PREFIX: &str = "hakoto-restored-";
 const MAX_MANIFEST: u64 = 16 * 1024 * 1024;
 const MAX_SETTINGS: u64 = 16 * 1024;
+const MAX_DATABASE: u64 = 1024 * 1024 * 1024;
 const MAX_ENTRIES: usize = 100_000;
 type Result<T> = std::result::Result<T, Box<dyn Error>>;
 
@@ -85,10 +86,10 @@ struct Manifest {
 pub struct RestoreSummary {
     pub token: String,
     created_at: String,
-    owned_albums: usize,
-    wishlist_albums: usize,
-    shelves: usize,
-    crates: usize,
+    owned_albums: i64,
+    wishlist_albums: i64,
+    shelves: i64,
+    crates: i64,
 }
 
 pub struct StagedRestore {
@@ -157,7 +158,8 @@ pub fn export(storage: &Storage, path: &Path, settings: &BackupSettings) -> Resu
     {
         return Err("Choose a backup filename ending in .zip.".into());
     }
-    let parent = path.parent().ok_or("Choose a folder for the backup.")?;
+    let path = storage::export_path(path)?;
+    let parent = path.parent().unwrap();
     let snapshot = tempfile::tempdir_in(storage.default_dir())?;
     let database_path = snapshot.path().join(DATABASE_NAME);
     storage::snapshot_database(&storage.connection, &database_path)?;
@@ -171,6 +173,7 @@ pub fn export(storage: &Storage, path: &Path, settings: &BackupSettings) -> Resu
     let mut file = tempfile::NamedTempFile::new_in(parent)?;
     let mut archive = ZipWriter::new(file.as_file_mut());
     let bytes = storage::checked_file(&database_path)?.len();
+    validate_entry(DATABASE_NAME, bytes)?;
     let mut entries = vec![add_file(
         &mut archive,
         DATABASE_NAME,
@@ -213,7 +216,7 @@ pub fn export(storage: &Storage, path: &Path, settings: &BackupSettings) -> Resu
         if error.error.kind() == io::ErrorKind::AlreadyExists {
             "A backup already exists at that location. Choose a new filename.".to_owned()
         } else {
-            error.to_string()
+            "Could not save the backup. Check the destination permissions.".to_owned()
         }
     })?;
     Ok(())
@@ -228,24 +231,86 @@ fn validate_entry(name: &str, size: u64) -> Result<()> {
     match name {
         MANIFEST if (1..=MAX_MANIFEST).contains(&size) => Ok(()),
         SETTINGS if (1..=MAX_SETTINGS).contains(&size) => Ok(()),
-        DATABASE_NAME if size >= 512 => Ok(()),
+        DATABASE_NAME if (512..=MAX_DATABASE).contains(&size) => Ok(()),
+        DATABASE_NAME => Err("The backup database must be between 512 bytes and 1 GiB.".into()),
         _ if image_path(name).is_some() && (20..=artwork::MAX_BYTES as u64).contains(&size) => {
             Ok(())
         }
-        _ => Err(format!("Invalid backup path or size: {name:?}.").into()),
+        _ => Err("The backup contains an invalid entry name or size.".into()),
     }
 }
 
+// Hakoto writes single-disk archives with no comments and a fixed-size ZIP64 footer.
+// Check the entry count before ZipArchive allocates its central directory index.
+fn central_directory(file: &mut File, size: u64) -> Result<(u64, u64, usize)> {
+    let invalid = "The ZIP has an invalid central directory.";
+    let footer_start = size.checked_sub(22).ok_or(invalid)?;
+    file.seek(SeekFrom::Start(footer_start))?;
+    let mut footer = [0; 22];
+    file.read_exact(&mut footer)?;
+    if &footer[..8] != b"PK\x05\x06\0\0\0\0" || footer[20..] != [0; 2] {
+        return Err(invalid.into());
+    }
+    let count = u16::from_le_bytes(footer[10..12].try_into()?);
+    if footer[8..10] != footer[10..12] {
+        return Err(invalid.into());
+    }
+    let length = u32::from_le_bytes(footer[12..16].try_into()?);
+    let start = u32::from_le_bytes(footer[16..20].try_into()?);
+    let (start, length, count, end) =
+        if count == u16::MAX || length == u32::MAX || start == u32::MAX {
+            let end = footer_start.checked_sub(76).ok_or(invalid)?;
+            file.seek(SeekFrom::Start(end))?;
+            let mut footer64 = [0; 76];
+            file.read_exact(&mut footer64)?;
+            if &footer64[..4] != b"PK\x06\x06"
+                || u64::from_le_bytes(footer64[4..12].try_into()?) != 44
+                || footer64[16..24] != [0; 8]
+                || footer64[24..32] != footer64[32..40]
+                || &footer64[56..64] != b"PK\x06\x07\0\0\0\0"
+                || u64::from_le_bytes(footer64[64..72].try_into()?) != end
+                || footer64[72..76] != [1, 0, 0, 0]
+            {
+                return Err(invalid.into());
+            }
+            (
+                u64::from_le_bytes(footer64[48..56].try_into()?),
+                u64::from_le_bytes(footer64[40..48].try_into()?),
+                u64::from_le_bytes(footer64[32..40].try_into()?),
+                end,
+            )
+        } else {
+            (
+                u64::from(start),
+                u64::from(length),
+                u64::from(count),
+                footer_start,
+            )
+        };
+    // Our names and ZIP64 extra fields fit comfortably within 256 bytes per entry.
+    if !(3..=MAX_ENTRIES as u64).contains(&count)
+        || !(46 * count..=256 * count).contains(&length)
+        || start.checked_add(length) != Some(end)
+    {
+        return Err(invalid.into());
+    }
+    Ok((start, end, count as usize))
+}
+
 pub fn stage(archive_path: &Path, parent: &Path) -> Result<StagedRestore> {
+    storage::validate_selected_path(archive_path)?;
     storage::checked_file(archive_path)?;
     let mut headers = File::open(archive_path)?;
     let file_size = headers.metadata()?.len();
+    let (central_start, central_end, count) = central_directory(&mut headers, file_size)?;
     let mut archive = ZipArchive::new(headers.try_clone()?)?;
-    if !(3..=MAX_ENTRIES).contains(&archive.len()) || archive.offset() != 0 {
+    if archive.len() != count
+        || archive.offset() != 0
+        || archive.central_directory_start() != central_start
+    {
         return Err("The ZIP has an invalid file layout.".into());
     }
     let mut contents = HashMap::new();
-    let central_start = archive.central_directory_start();
     let mut central = central_start;
     let mut next_local = 0;
     let mut total_bytes = 0u64;
@@ -296,14 +361,14 @@ pub fn stage(archive_path: &Path, parent: &Path) -> Result<StagedRestore> {
             || file.compression() != CompressionMethod::Stored
             || file.compressed_size() != file.size()
         {
-            return Err(format!("The backup contains an unsupported ZIP entry: {name:?}.").into());
+            return Err("The backup contains an unsupported ZIP entry.".into());
         }
         total_bytes = total_bytes
             .checked_add(file.size())
             .ok_or("Invalid total backup size.")?;
         contents.insert(name.to_owned(), (index, file.size()));
     }
-    if total_bytes > file_size || next_local != central_start {
+    if total_bytes > file_size || next_local != central_start || central != central_end {
         return Err("The ZIP has an invalid file layout.".into());
     }
     let (manifest_index, manifest_bytes) = contents
@@ -377,8 +442,7 @@ pub fn stage(archive_path: &Path, parent: &Path) -> Result<StagedRestore> {
         storage::sync_directory(&staging.path().join(folder))?;
     }
     read_settings(staging.path())?.validate()?;
-    let mut connection =
-        verify_database(&staging.path().join(DATABASE_NAME), staging.path(), parent)?;
+    let connection = verify_database(&staging.path().join(DATABASE_NAME), staging.path(), parent)?;
     let date_valid: bool = connection.query_row(
         "SELECT strftime('%Y-%m-%dT%H:%M:%SZ', ?1) IS ?1",
         [&manifest.created_at],
@@ -387,27 +451,36 @@ pub fn stage(archive_path: &Path, parent: &Path) -> Result<StagedRestore> {
     if !date_valid {
         return Err("The backup creation date is invalid.".into());
     }
-    let library = database::get_album_library(&mut connection)?;
+    let (owned_albums, wishlist_albums) = connection.query_row(
+        "SELECT count(*) FILTER (WHERE ownership = 'owned'),
+                count(*) FILTER (WHERE ownership = 'wishlist') FROM albums",
+        [],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
     let summary = RestoreSummary {
         token: restore_id(staging.path())?.to_owned(),
         created_at: manifest.created_at,
-        owned_albums: library.owned.len(),
-        wishlist_albums: library.wishlist.len(),
-        shelves: shelves::get_shelves(&connection)?.len(),
-        crates: crates::list(&connection)?.len(),
+        owned_albums,
+        wishlist_albums,
+        shelves: connection.query_row("SELECT count(*) FROM shelves", [], |row| row.get(0))?,
+        crates: connection.query_row("SELECT count(*) FROM crates", [], |row| row.get(0))?,
     };
     Ok(StagedRestore { summary, staging })
 }
 
 fn verify_database(database: &Path, directory: &Path, parent: &Path) -> Result<Connection> {
-    let db = Connection::open_with_flags(database, OpenFlags::SQLITE_OPEN_READ_ONLY)?;
+    let db = Connection::open_with_flags(
+        database,
+        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NOFOLLOW,
+    )?;
     db.pragma_update(None, "trusted_schema", false)?;
-    storage::verify_database_integrity(&db)?;
     let reference = tempfile::tempdir_in(parent)?;
     let expected = database::initialize_database(reference.path(), None)?;
     if schema(&db)? != schema(&expected)? || album_columns(&db)? != album_columns(&expected)? {
         return Err("The backup database schema is unsupported or has been modified.".into());
     }
+    storage::verify_database_integrity(&db)?;
+    database::verify_album_rows(&db)?;
     profile::get(&db)?;
     crate::undo::pending(&db)?;
     let invalid_placement: bool = db.query_row(
@@ -525,6 +598,7 @@ pub fn finish_settings(storage: &Storage, token: &str) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::shelves;
 
     fn settings() -> BackupSettings {
         serde_json::from_value(serde_json::json!({
@@ -533,6 +607,34 @@ mod tests {
             "animationDuration": "350"
         }))
         .unwrap()
+    }
+
+    #[test]
+    fn backup_rejects_oversized_entries_and_zip64_indexes_before_staging() {
+        assert!(validate_entry(DATABASE_NAME, MAX_DATABASE + 1).is_err());
+        let workspace = tempfile::tempdir().unwrap();
+        let path = workspace.path().join("oversized.zip");
+        let mut file = File::create(&path).unwrap();
+        let count = MAX_ENTRIES as u64 + 1;
+        let directory_size = count * 46;
+        file.seek(SeekFrom::Start(directory_size)).unwrap();
+        file.write_all(b"PK\x06\x06").unwrap();
+        file.write_all(&44u64.to_le_bytes()).unwrap();
+        file.write_all(&[0; 12]).unwrap();
+        for value in [count, count, directory_size, 0] {
+            file.write_all(&value.to_le_bytes()).unwrap();
+        }
+        file.write_all(b"PK\x06\x07\0\0\0\0").unwrap();
+        file.write_all(&directory_size.to_le_bytes()).unwrap();
+        file.write_all(&1u32.to_le_bytes()).unwrap();
+        file.write_all(b"PK\x05\x06\0\0\0\0").unwrap();
+        file.write_all(&[0xff; 8]).unwrap();
+        file.write_all(&[0; 6]).unwrap();
+        drop(file);
+
+        let error = stage(&path, workspace.path()).err().unwrap().to_string();
+        assert_eq!(error, "The ZIP has an invalid central directory.");
+        assert_eq!(fs::read_dir(workspace.path()).unwrap().count(), 1);
     }
 
     #[test]
@@ -693,6 +795,53 @@ mod tests {
         let previous =
             Connection::open(restored.previous_location().unwrap().join(DATABASE_NAME)).unwrap();
         assert!(database::get_album(&previous, "keep").unwrap().is_some());
+    }
+
+    #[test]
+    fn failed_activation_keeps_the_previous_location_and_collection_after_restart() {
+        let workspace = tempfile::tempdir().unwrap();
+        let default = workspace.path().join("default");
+        let destination = workspace.path().join("destination");
+        fs::create_dir(&destination).unwrap();
+        let mut storage = Storage::open(&default, None).unwrap();
+        let image = "0123456789abcdef0123456789abcdef.webp";
+        artwork::write(&storage.directory, image, artwork::TEST_WEBP).unwrap();
+        storage.connection.execute(
+            "INSERT INTO albums (id,title,artist,format,artwork) VALUES ('backup','Album','Artist','CD',?1)",
+            [image],
+        ).unwrap();
+        let zip = workspace.path().join("backup.zip");
+        export(&storage, &zip, &settings()).unwrap();
+        storage.relocate(&destination).unwrap();
+        let active = storage.directory.clone();
+        storage
+            .connection
+            .execute(
+                "UPDATE albums SET title = 'Current title' WHERE id = 'backup'",
+                [],
+            )
+            .unwrap();
+        let staged = stage(&zip, storage.default_dir()).unwrap();
+        let staging_path = staged.staging.path().to_owned();
+        fs::remove_file(staging_path.join("artwork").join(image)).unwrap();
+        assert!(storage.activate_restored(staged.staging).is_err());
+        assert_eq!(storage.directory, active);
+        assert!(!staging_path.exists());
+        drop(storage);
+
+        let storage = Storage::open(&default, None).unwrap();
+        assert_eq!(storage.directory, active);
+        assert_eq!(
+            database::get_album(&storage.connection, "backup")
+                .unwrap()
+                .unwrap()
+                .title,
+            "Current title"
+        );
+        assert_eq!(
+            artwork::read(&storage.directory, image).as_deref(),
+            Some(artwork::TEST_WEBP)
+        );
     }
 
     #[test]

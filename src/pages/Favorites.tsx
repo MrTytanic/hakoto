@@ -1,7 +1,7 @@
 
 import { useMemo, useRef, useState } from "react";
 import { Heart } from "lucide-react";
-import { ProfileAvatar } from "../components/ProfileHeader";
+import ProfileHeader from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { ArtworkChange } from "../artwork";
 import type { Album } from "../types/Album";
@@ -43,15 +43,7 @@ function Favorites({ profile, albums, onUpdate, onDelete, onBrowseCollection }: 
   return (
     <div className="collection-page">
       <div className="collection-top">
-        <div className="collection-header">
-          <ProfileAvatar picture={profile.profilePicture} />
-
-          <h1 ref={headingRef} tabIndex={-1}>
-            {profile.displayName.trim()
-              ? `${profile.displayName.trim()}'s Favorites`
-              : "Your Favorites"}
-          </h1>
-        </div>
+        <ProfileHeader profile={profile} title="Favorites" headingRef={headingRef} />
       </div>
 
       <section className="collection-tools" aria-label="Favorites search">
