@@ -6,6 +6,8 @@ use rusqlite::{
 };
 use serde::{Deserialize, Serialize};
 
+use crate::{database::database_error, metadata};
+
 const MAX_DIMENSION: i64 = 10;
 const MAX_STORED_DIMENSION: i64 = 50;
 const MAX_NAME_LENGTH: usize = 80;
@@ -100,15 +102,16 @@ pub struct ShelfSettings {
 
 impl ShelfSettings {
     fn validated(mut self, current: Option<&Self>) -> Result<Self> {
-        self.name = self.name.trim().to_owned();
-        if self.name.is_empty()
-            || self.name.chars().any(char::is_control)
-            || self.name.chars().count() > MAX_NAME_LENGTH
+        let name = self.name.trim();
+        if name.is_empty()
+            || name.chars().take(MAX_NAME_LENGTH + 1).count() > MAX_NAME_LENGTH
+            || name.chars().any(char::is_control)
         {
             return Err(format!(
                 "Enter a shelf name between 1 and {MAX_NAME_LENGTH} characters."
             ));
         }
+        self.name = name.to_owned();
         for (axis, value, previous) in [
             ("rows", self.rows, current.map(|shelf| shelf.rows)),
             ("columns", self.columns, current.map(|shelf| shelf.columns)),
@@ -192,18 +195,19 @@ fn read_shelf(row: &Row<'_>) -> rusqlite::Result<Shelf> {
 pub fn get_shelves(connection: &Connection) -> Result<Vec<Shelf>> {
     let mut statement = connection
         .prepare(&format!("{SELECT_SHELVES} ORDER BY id"))
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     statement
         .query_map([], read_shelf)
         .and_then(Iterator::collect)
-        .map_err(|error| error.to_string())
+        .map_err(database_error)
 }
 
 fn get_shelf(connection: &Connection, id: i64) -> Result<Shelf> {
+    metadata::positive_id(id, "Shelf ID")?;
     connection
         .query_row(&format!("{SELECT_SHELVES} WHERE id = ?1"), [id], read_shelf)
         .optional()
-        .map_err(|error| error.to_string())?
+        .map_err(database_error)?
         .ok_or_else(|| format!("Shelf {id} does not exist."))
 }
 
@@ -226,12 +230,10 @@ fn placements(connection: &Connection, id: i64) -> rusqlite::Result<Vec<Placemen
 }
 
 pub fn load_shelf(connection: &mut Connection, id: i64) -> Result<ShelfLayout> {
-    let transaction = connection
-        .transaction()
-        .map_err(|error| error.to_string())?;
+    let transaction = connection.transaction().map_err(database_error)?;
     let shelf = get_shelf(&transaction, id)?;
-    let placements = placements(&transaction, id).map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    let placements = placements(&transaction, id).map_err(database_error)?;
+    transaction.commit().map_err(database_error)?;
     Ok(ShelfLayout { shelf, placements })
 }
 
@@ -247,7 +249,7 @@ pub fn create_shelf(connection: &Connection, settings: ShelfSettings) -> Result<
                 settings.orientation.as_str()
             ],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     if inserted != 1 {
         return Err("Shelf creation was not completed.".into());
     }
@@ -265,7 +267,7 @@ pub fn update_shelf(
 ) -> Result<Shelf> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     let current = get_shelf(&transaction, id)?;
     let settings = settings.validated(Some(&current.settings))?;
     let outside = transaction
@@ -277,7 +279,7 @@ pub fn update_shelf(
             |row| Ok((row.get::<_, i64>(0)?, row.get::<_, i64>(1)?)),
         )
         .optional()
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     if let Some((row, column)) = outside {
         return Err(format!(
             "Move or clear the album in row {}, column {} before shrinking this shelf.",
@@ -296,19 +298,20 @@ pub fn update_shelf(
                 settings.orientation.as_str()
             ],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     if updated == 0 {
         return Err(format!("Shelf {id} does not exist."));
     }
     let shelf = get_shelf(&transaction, id)?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database_error)?;
     Ok(shelf)
 }
 
 pub fn delete_shelf(connection: &Connection, id: i64) -> Result<usize> {
+    metadata::positive_id(id, "Shelf ID")?;
     connection
         .execute("DELETE FROM shelves WHERE id = ?1", [id])
-        .map_err(|error| error.to_string())
+        .map_err(database_error)
 }
 
 #[cfg(test)]
@@ -328,10 +331,10 @@ pub fn update_placements_checked(
 ) -> Result<Vec<Placement>> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     let shelf = get_shelf(&transaction, id)?;
     if let Some(expected) = expected
-        && placements(&transaction, id).map_err(|e| e.to_string())? != expected
+        && placements(&transaction, id).map_err(database_error)? != expected
     {
         return Err("The shelf has changed. Undo would overwrite a newer arrangement.".into());
     }
@@ -340,10 +343,10 @@ pub fn update_placements_checked(
         let mut set = transaction.prepare(
             "INSERT INTO shelf_placements (shelf_id, row_index, column_index, album_id) VALUES (?1, ?2, ?3, ?4)
              ON CONFLICT (shelf_id, row_index, column_index) DO UPDATE SET album_id = excluded.album_id",
-        ).map_err(|error| error.to_string())?;
+        ).map_err(database_error)?;
         let mut clear = transaction.prepare(
             "DELETE FROM shelf_placements WHERE shelf_id = ?1 AND row_index = ?2 AND column_index = ?3",
-        ).map_err(|error| error.to_string())?;
+        ).map_err(database_error)?;
 
         for change in changes {
             let (row, column, album) = match change {
@@ -368,6 +371,7 @@ pub fn update_placements_checked(
                 ));
             }
             if let Some(album) = album {
+                metadata::album_reference(&transaction, &album)?;
                 let changed = set
                     .execute(params![id, row, column, album])
                     .map_err(|error| match error {
@@ -375,9 +379,15 @@ pub fn update_placements_checked(
                             if code.extended_code
                                 == rusqlite::ffi::SQLITE_CONSTRAINT_FOREIGNKEY =>
                         {
-                            format!("Album {album} does not exist.")
+                            "The selected album does not exist.".into()
                         }
-                        _ => error.to_string(),
+                        rusqlite::Error::SqliteFailure(_, Some(ref message))
+                            if message
+                                == "Add wishlist albums to your collection before placing them" =>
+                        {
+                            "Add wishlist albums to your collection before placing them.".into()
+                        }
+                        _ => database_error(error),
                     })?;
                 if changed != 1 {
                     return Err(
@@ -387,18 +397,18 @@ pub fn update_placements_checked(
             } else {
                 let changed = clear
                     .execute(params![id, row, column])
-                    .map_err(|error| error.to_string())?;
+                    .map_err(database_error)?;
                 if changed == 0 && transaction.query_row(
                     "SELECT EXISTS(SELECT 1 FROM shelf_placements WHERE shelf_id = ?1 AND row_index = ?2 AND column_index = ?3)",
                     params![id, row, column], |row| row.get::<_, bool>(0),
-                ).map_err(|error| error.to_string())? {
+                ).map_err(database_error)? {
                     return Err("Shelf removal was not completed. The arrangement is unchanged.".into());
                 }
             }
         }
     }
-    let placements = placements(&transaction, id).map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    let placements = placements(&transaction, id).map_err(database_error)?;
+    transaction.commit().map_err(database_error)?;
     Ok(placements)
 }
 
@@ -691,6 +701,7 @@ mod tests {
             update_placements(&mut db, id, vec![set(0, 0, "one"), set(0, 1, "two")]).unwrap();
         for (invalid, message) in [
             (set(0, 1, "missing"), "does not exist"),
+            (set(0, 1, "\0"), "Album ID"),
             (set(1, 0, "one"), "outside"),
             (set(0, 0, "one"), "more than once"),
         ] {

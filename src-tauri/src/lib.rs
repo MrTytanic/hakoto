@@ -50,7 +50,10 @@ impl DatabaseState {
         &self,
         action: impl FnOnce(&mut storage::Storage) -> Result<T, String>,
     ) -> Result<T, String> {
-        let mut state = self.storage.lock().map_err(|error| error.to_string())?;
+        let mut state = self
+            .storage
+            .lock()
+            .map_err(|_| "Hakoto storage is unavailable. Restart Hakoto and try again.")?;
         action(state.as_mut().map_err(|error| error.clone())?)
     }
 }
@@ -69,7 +72,7 @@ fn save_album(
 #[tauri::command]
 fn get_album_library(state: State<'_, DatabaseState>) -> Result<database::AlbumLibrary, String> {
     state.with_storage(|storage| {
-        database::get_album_library(&mut storage.connection).map_err(|error| error.to_string())
+        database::get_album_library(&mut storage.connection).map_err(database::database_error)
     })
 }
 
@@ -118,6 +121,7 @@ fn restore_deleted_album(
 
 #[tauri::command]
 fn discard_deleted_album(state: State<'_, DatabaseState>, token: String) -> Result<(), String> {
+    metadata::required_text(&token, 128, "Album recovery token")?;
     state.with_storage(|storage| undo::discard(&mut storage.connection, &storage.directory, &token))
 }
 
@@ -257,16 +261,13 @@ fn update_shelf_placements(
 
 #[tauri::command]
 fn get_profile(state: State<'_, DatabaseState>) -> Result<profile::Profile, String> {
-    state.with_storage(|storage| {
-        profile::get(&storage.connection).map_err(|error| error.to_string())
-    })
+    state
+        .with_storage(|storage| profile::get(&storage.connection).map_err(database::database_error))
 }
 
 #[tauri::command]
 fn set_display_name(state: State<'_, DatabaseState>, name: String) -> Result<(), String> {
-    state.with_storage(|storage| {
-        profile::set_display_name(&storage.connection, &name).map_err(|error| error.to_string())
-    })
+    state.with_storage(|storage| profile::set_display_name(&storage.connection, &name))
 }
 
 #[tauri::command]
@@ -276,7 +277,6 @@ fn set_profile_picture(
 ) -> Result<Option<String>, String> {
     state.with_storage(|storage| {
         profile::set_picture(&mut storage.connection, &storage.directory, change)
-            .map_err(|error| error.to_string())
     })
 }
 
@@ -298,7 +298,7 @@ async fn export_collection_csv(
         };
         let path = path.into_path().map_err(|error| error.to_string())?;
         let library = app.state::<DatabaseState>().with_storage(|storage| {
-            database::get_album_library(&mut storage.connection).map_err(|error| error.to_string())
+            database::get_album_library(&mut storage.connection).map_err(database::database_error)
         })?;
         collection_csv::export(&path, library, include_wishlist).map(Some)
     })
@@ -672,7 +672,10 @@ pub fn run() {
                     }
                     storage
                 })
-                .map_err(|error| error.to_string());
+                .map_err(|error| {
+                    eprintln!("Could not open Hakoto storage: {error}");
+                    "Could not open Hakoto storage. Close any other Hakoto window, check that your collection drive is connected, and restart.".into()
+                });
             app.manage(DatabaseState {
                 storage: Mutex::new(storage),
                 relocation: Mutex::new(()),

@@ -10,7 +10,7 @@ use rusqlite::{
     types::{FromSql, FromSqlError, FromSqlResult, ValueRef},
 };
 
-use crate::{artwork, profile, shelves};
+use crate::{artwork, metadata, profile, shelves};
 
 const LEGACY_DATABASE_NAME: &str = "sleevy.db";
 pub const DATABASE_NAME: &str = "hakoto.db";
@@ -28,11 +28,34 @@ const ALBUM_COLUMNS: &str = "id, title, artist, format, release_year, artwork, f
     pinned, date_added, condition, record_type, disc_size, original_release_year, date_acquired,
     notes, ownership";
 
+pub(crate) fn database_error(error: rusqlite::Error) -> String {
+    use rusqlite::ErrorCode;
+
+    match error.sqlite_error_code() {
+        Some(ErrorCode::DatabaseBusy | ErrorCode::DatabaseLocked) => {
+            "The collection database is busy. Try again."
+        }
+        Some(ErrorCode::ReadOnly | ErrorCode::PermissionDenied) => {
+            "Hakoto cannot write to the collection database. Check its permissions."
+        }
+        Some(ErrorCode::DiskFull) => "There is not enough disk space to save the change.",
+        Some(ErrorCode::DatabaseCorrupt | ErrorCode::NotADatabase) => {
+            "The collection database could not be read. Check your backups."
+        }
+        Some(ErrorCode::ConstraintViolation) => {
+            "This change conflicts with existing collection data."
+        }
+        _ => "The collection database operation could not be completed.",
+    }
+    .into()
+}
+
 pub fn initialize_database(
     app_dir: &Path,
     legacy_dir: Option<&Path>,
 ) -> Result<Connection, Box<dyn Error>> {
     let mut connection = Connection::open(app_dir.join(DATABASE_NAME))?;
+    connection.pragma_update(None, "foreign_keys", true)?;
     let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let already_initialized: bool = transaction.query_row(
         "SELECT EXISTS (SELECT 1 FROM sqlite_schema WHERE type = 'table' AND name = 'albums')",
@@ -327,25 +350,33 @@ pub fn acquire_album(
     format: &str,
     date_acquired: &str,
 ) -> Result<Album, String> {
-    let format = crate::metadata::validate_format(format, Ownership::Owned)?;
+    let format = metadata::validate_format(format, Ownership::Owned)?;
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
-    crate::metadata::validate_acquisition_date(&transaction, date_acquired)?;
+        .map_err(database_error)?;
+    metadata::validate_acquisition_date(&transaction, date_acquired)?;
+    metadata::album_reference(&transaction, id)?;
+    let wishlist = get_album(&transaction, id)
+        .map_err(database_error)?
+        .filter(|album| album.ownership == Ownership::Wishlist)
+        .ok_or("Could not acquire this album. It may no longer be on your wishlist.")?;
+    if !metadata::vinyl_fields_match_format(&wishlist, format) {
+        return Err("Choose a vinyl format or remove the vinyl details from this wishlist album before acquiring it.".into());
+    }
     let updated = transaction
         .execute(
             "UPDATE albums SET ownership = 'owned', format = ?2, date_acquired = ?3
              WHERE id = ?1 AND ownership = 'wishlist'",
             params![id, format, date_acquired],
         )
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     if updated != 1 {
         return Err("Could not acquire this album. It may no longer be on your wishlist.".into());
     }
     let album = get_album(&transaction, id)
-        .map_err(|error| error.to_string())?
+        .map_err(database_error)?
         .ok_or("Album no longer exists.")?;
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database_error)?;
     Ok(album)
 }
 
@@ -359,13 +390,14 @@ fn store_album(
     // The writer lock also serializes startup cleanup with artwork writes in other app instances.
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
     let existing = if insert {
         None
     } else {
+        metadata::album_reference(&transaction, &album.id)?;
         Some(
             get_album(&transaction, &album.id)
-                .map_err(|error| error.to_string())?
+                .map_err(database_error)?
                 .ok_or("Album no longer exists.")?,
         )
     };
@@ -375,14 +407,14 @@ fn store_album(
     {
         return Err("Album ownership has changed. Reopen the album before editing it.".into());
     }
-    crate::metadata::validate(&transaction, &mut album, existing.as_ref())?;
+    metadata::validate(&transaction, &mut album, existing.as_ref())?;
     let previous = existing.as_ref().and_then(|old| old.artwork.clone());
     album.date_added = if let Some(existing) = existing {
         existing.date_added
     } else {
         transaction
             .query_row("SELECT date('now')", [], |row| row.get(0))
-            .map_err(|error| error.to_string())?
+            .map_err(database_error)?
     };
 
     let mut new_file = None;
@@ -390,8 +422,13 @@ fn store_album(
         None => previous.clone(),
         Some(ArtworkChange::Remove) => None,
         Some(ArtworkChange::Replace(bytes)) => {
-            let name =
-                store_artwork(&transaction, app_dir, &bytes).map_err(|error| error.to_string())?;
+            if !artwork::validate(&bytes) {
+                return Err("Choose valid WebP artwork up to 500 × 500 pixels and 1 MiB.".into());
+            }
+            let name = image_filename(&transaction).map_err(database_error)?;
+            artwork::write(app_dir, &name, &bytes).map_err(
+                |_| "Could not save the album artwork. Check storage permissions and free space.",
+            )?;
             new_file = Some(name.clone());
             Some(name)
         }
@@ -417,7 +454,7 @@ fn store_album(
     if let Err(error) = result {
         // The transaction has rolled back. Check references even if commit reported an error.
         cleanup(connection, app_dir, new_file.as_deref());
-        return Err(error.to_string());
+        return Err(database_error(error));
     }
     if previous != album.artwork {
         cleanup(connection, app_dir, previous.as_deref());
@@ -476,20 +513,24 @@ pub fn delete_album(
 ) -> Result<usize, String> {
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
+    metadata::album_reference(&transaction, id)?;
     let Some(previous) = transaction
         .query_row("SELECT artwork FROM albums WHERE id = ?1", [id], |row| {
             row.get::<_, Option<String>>(0)
         })
         .optional()
-        .map_err(|error| error.to_string())?
+        .map_err(database_error)?
     else {
         return Ok(0);
     };
     let rows = transaction
         .execute("DELETE FROM albums WHERE id = ?1", [id])
-        .map_err(|error| error.to_string())?;
-    transaction.commit().map_err(|error| error.to_string())?;
+        .map_err(database_error)?;
+    if rows != 1 {
+        return Err("Album deletion was not completed. Nothing was changed.".into());
+    }
+    transaction.commit().map_err(database_error)?;
     cleanup(connection, app_dir, previous.as_deref());
     Ok(rows)
 }
@@ -1261,6 +1302,71 @@ mod tests {
         db.execute_batch("DROP TRIGGER fail_acquisition;").unwrap();
         acquire_album(&mut db, "wish", "Vinyl", "2024-02-29").unwrap();
         assert_eq!(db.execute(placement, []).unwrap(), 1);
+    }
+
+    #[test]
+    fn acquisition_rejects_an_incompatible_format_without_losing_vinyl_details() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let mut candidate = album("wishlist-vinyl");
+        candidate.ownership = Ownership::Wishlist;
+        candidate.format = "Vinyl".into();
+        candidate.record_type = Some("LP".into());
+        candidate.disc_size = Some("12".into());
+        save_album(&mut db, path, candidate, None).unwrap();
+
+        let id = "wishlist-vinyl";
+        let error = acquire_album(&mut db, id, "CD", "2024-02-29")
+            .err()
+            .unwrap();
+        assert!(error.contains("vinyl details"));
+        let unchanged = get_album(&db, id).unwrap().unwrap();
+        assert_eq!(unchanged.ownership, Ownership::Wishlist);
+        assert_eq!(unchanged.format, "Vinyl");
+        assert_eq!(unchanged.record_type.as_deref(), Some("LP"));
+        assert_eq!(unchanged.disc_size.as_deref(), Some("12"));
+        assert!(unchanged.date_acquired.is_none());
+        assert_eq!(
+            acquire_album(&mut db, id, "Vinyl", "2024-02-29")
+                .unwrap()
+                .ownership,
+            Ownership::Owned
+        );
+    }
+
+    #[test]
+    fn album_mutations_validate_unknown_ids_and_hide_database_failure_details() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let id = "Björk'; DELETE FROM albums; --";
+        save_album(&mut db, path, album(id), None).unwrap();
+        assert!(
+            delete_album(&mut db, path, "\0")
+                .unwrap_err()
+                .contains("Album ID")
+        );
+        db.execute_batch(
+            "CREATE TRIGGER reject_album_delete BEFORE DELETE ON albums
+             BEGIN SELECT RAISE(ABORT, 'private local database detail'); END;",
+        )
+        .unwrap();
+        assert_eq!(
+            delete_album(&mut db, path, id).unwrap_err(),
+            "This change conflicts with existing collection data."
+        );
+        assert!(get_album(&db, id).unwrap().is_some());
+        db.execute_batch("DROP TRIGGER reject_album_delete;")
+            .unwrap();
+
+        let legacy_id = "x".repeat(129);
+        db.execute(
+            "UPDATE albums SET id = ?1 WHERE id = ?2",
+            params![legacy_id, id],
+        )
+        .unwrap();
+        assert_eq!(delete_album(&mut db, path, &legacy_id).unwrap(), 1);
     }
 
     #[test]

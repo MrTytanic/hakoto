@@ -336,6 +336,7 @@ fn open_saved_collection(directory: &Path) -> Result<Connection> {
     }
     let mut connection = Connection::open_with_flags(path, OpenFlags::SQLITE_OPEN_READ_WRITE)?;
     connection.pragma_update(None, "trusted_schema", false)?;
+    connection.pragma_update(None, "foreign_keys", true)?;
     connection
         .prepare("SELECT id, title, artist, format, release_year, artwork, favorite FROM albums")?;
     profile::get(&connection)?;

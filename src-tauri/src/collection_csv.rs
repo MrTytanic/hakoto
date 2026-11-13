@@ -114,7 +114,7 @@ pub fn export(
         .parent()
         .ok_or("Choose a directory for the CSV file.")?;
     let mut file = tempfile::NamedTempFile::new_in(directory)
-        .map_err(|error| format!("Could not create the CSV: {error}"))?;
+        .map_err(|_| "Could not create the CSV. Check the destination permissions.")?;
     let count = write_albums(
         &mut file,
         library
@@ -122,12 +122,12 @@ pub fn export(
             .into_iter()
             .chain(library.wishlist.into_iter().filter(|_| include_wishlist)),
     )
-    .map_err(|error| format!("Could not write the CSV: {error}"))?;
+    .map_err(|_| "Could not write the CSV. Check available disk space.")?;
     file.as_file()
         .sync_all()
-        .map_err(|error| format!("Could not finish writing the CSV: {error}"))?;
+        .map_err(|_| "Could not finish writing the CSV. Check the destination and try again.")?;
     file.persist(path)
-        .map_err(|error| format!("Could not save the CSV: {error}"))?;
+        .map_err(|_| "Could not save the CSV. Check the destination permissions and close any other app using the file.")?;
     Ok(count)
 }
 
@@ -211,7 +211,7 @@ pub fn read(path: &Path) -> Result<String> {
     let mut bytes = Vec::new();
     File::open(path)
         .and_then(|file| file.take(MAX_BYTES + 1).read_to_end(&mut bytes))
-        .map_err(|error| format!("Could not read the CSV: {error}"))?;
+        .map_err(|_| "Could not read the CSV. Check that the file is accessible.")?;
     if bytes.len() as u64 > MAX_BYTES {
         return Err("The CSV must be 32 MB or smaller.".into());
     }
@@ -333,7 +333,7 @@ pub fn prepare(connection: &Connection, text: &str) -> Result<PreparedImport> {
         }
     }
     let own_format = columns.contains_key(VERSION_COLUMN);
-    let mut existing = Existing::load(connection).map_err(|error| error.to_string())?;
+    let mut existing = Existing::load(connection).map_err(database::database_error)?;
     let mut rows = Vec::new();
     for (index, fields) in records.enumerate() {
         if fields.len() == 1 && fields[0].trim().is_empty() {
@@ -447,8 +447,8 @@ pub fn import(
     }
     let transaction = connection
         .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(|error| error.to_string())?;
-    let mut existing = Existing::load(&transaction).map_err(|error| error.to_string())?;
+        .map_err(database::database_error)?;
+    let mut existing = Existing::load(&transaction).map_err(database::database_error)?;
     let mut imported = Vec::new();
     for (preview, album) in &prepared.rows {
         let Some(album) = album else {
@@ -468,11 +468,15 @@ pub fn import(
         while album.id.is_empty() || existing.ids.contains(&album.id) {
             album.id = transaction
                 .query_row("SELECT lower(hex(randomblob(16)))", [], |row| row.get(0))
-                .map_err(|error| error.to_string())?;
+                .map_err(database::database_error)?;
         }
-        if database::write_album(&transaction, database::INSERT_ALBUM, &album)
-            .map_err(|error| format!("Could not import record {}: {error}", preview.record))?
-            != 1
+        if database::write_album(&transaction, database::INSERT_ALBUM, &album).map_err(|error| {
+            format!(
+                "Could not import record {}. No albums were imported. {}",
+                preview.record,
+                database::database_error(error)
+            )
+        })? != 1
         {
             return Err(format!(
                 "Could not import record {}. No albums were imported.",
@@ -482,7 +486,7 @@ pub fn import(
         existing.track(&album);
         imported.push(album);
     }
-    transaction.commit().map_err(|error| error.to_string())?;
+    transaction.commit().map_err(database::database_error)?;
     Ok(imported)
 }
 
@@ -665,12 +669,9 @@ mod tests {
         )
         .unwrap();
         assert!(preview.preview().iter().all(|row| row.error.is_none()));
-        assert!(
-            import(&mut db, &preview, &[])
-                .err()
-                .unwrap()
-                .contains("write blocked")
-        );
+        let error = import(&mut db, &preview, &[]).err().unwrap();
+        assert!(error.contains("Could not import record 3. No albums were imported."));
+        assert!(!error.contains("write blocked"));
         drop(db);
         let db = database::initialize_database(directory.path(), None).unwrap();
         let albums = database::get_albums(&db).unwrap();

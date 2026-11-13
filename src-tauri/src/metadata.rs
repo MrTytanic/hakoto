@@ -1,4 +1,4 @@
-use crate::database::{Album, Ownership};
+use crate::database::{Album, Ownership, database_error};
 use rusqlite::Connection;
 
 const FORMATS: &[&str] = &[
@@ -41,7 +41,7 @@ pub fn validate_acquisition_date(connection: &Connection, date: &str) -> Result<
             .query_row("SELECT date(?1, '+0 days') IS ?1", [date], |row| {
                 row.get::<_, bool>(0)
             })
-            .map_err(|error| error.to_string())?;
+            .map_err(database_error)?;
     if valid {
         Ok(())
     } else {
@@ -49,7 +49,7 @@ pub fn validate_acquisition_date(connection: &Connection, date: &str) -> Result<
     }
 }
 
-fn text(value: &str, limit: usize, label: &str) -> Result<(), String> {
+pub(crate) fn required_text(value: &str, limit: usize, label: &str) -> Result<(), String> {
     if value.encode_utf16().take(limit + 1).count() > limit
         || value.trim().is_empty()
         || value.chars().any(char::is_control)
@@ -59,6 +59,38 @@ fn text(value: &str, limit: usize, label: &str) -> Result<(), String> {
         ));
     }
     Ok(())
+}
+
+pub(crate) fn positive_id(id: i64, label: &str) -> Result<(), String> {
+    if id <= 0 {
+        return Err(format!("{label} must be a positive integer."));
+    }
+    Ok(())
+}
+
+pub(crate) fn album_id(id: &str) -> Result<(), String> {
+    required_text(id, 128, "Album ID")
+}
+
+pub(crate) fn album_reference(connection: &Connection, id: &str) -> Result<(), String> {
+    if let Err(message) = album_id(id) {
+        // Older versions could save IDs that fail today's creation rules.
+        let exists: bool = connection
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM albums WHERE id = ?1)",
+                [id],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !exists {
+            return Err(message);
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn vinyl_fields_match_format(album: &Album, format: &str) -> bool {
+    format.starts_with("Vinyl") || (album.record_type.is_none() && album.disc_size.is_none())
 }
 
 fn choice(
@@ -90,14 +122,14 @@ pub fn validate(
 ) -> Result<(), String> {
     // Keep unchanged legacy fields intact, including values accepted by older versions.
     if previous.is_none() {
-        text(&album.id, 128, "Album ID")?;
+        album_id(&album.id)?;
     }
     if previous.is_none_or(|old| old.title != album.title) {
-        text(album.title.trim(), 500, "Title")?;
+        required_text(album.title.trim(), 500, "Title")?;
         album.title = album.title.trim().to_owned();
     }
     if previous.is_none_or(|old| old.artist != album.artist) {
-        text(album.artist.trim(), 300, "Artist")?;
+        required_text(album.artist.trim(), 300, "Artist")?;
         album.artist = album.artist.trim().to_owned();
     }
     if previous.is_none_or(|old| old.format != album.format) {
@@ -123,6 +155,10 @@ pub fn validate(
         validate_acquisition_date(connection, date)?;
     }
     if let Some(notes) = &album.notes {
+        // Each UTF-16 unit uses at most three UTF-8 bytes, including CRLF normalization.
+        if notes.len() > 3000 {
+            return Err("Notes must be 1,000 characters or fewer.".into());
+        }
         let notes = notes.replace("\r\n", "\n").replace('\r', "\n");
         if notes.encode_utf16().take(1001).count() > 1000 {
             return Err("Notes must be 1,000 characters or fewer.".into());
@@ -162,8 +198,7 @@ pub fn validate(
         &["7", "10", "12"],
         "disc size",
     )?;
-    if !album.format.starts_with("Vinyl")
-        && (album.record_type.is_some() || album.disc_size.is_some())
+    if !vinyl_fields_match_format(album, &album.format)
         && previous.is_none_or(|old| {
             old.format != album.format
                 || old.record_type != album.record_type
