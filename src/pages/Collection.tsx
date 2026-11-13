@@ -1,5 +1,5 @@
 
-import { useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type PointerEvent, type ReactNode } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { AlertCircle, Bookmark, Disc3, Plus, SlidersHorizontal, X } from "lucide-react";
 import ProfileHeader from "../components/ProfileHeader";
@@ -12,7 +12,7 @@ import AlbumMetadataFields, { AlbumReleaseFields, albumMetadata, albumReleaseDra
 import AlbumSearch from "../components/AlbumSearch";
 import { AlbumFormatOptions, CollectionSortSelect, CollectionViewToggle } from "../components/CollectionControls";
 import AlbumPagination from "../components/AlbumPagination";
-import AlbumCard from "../components/albumcard/AlbumCard";
+import AlbumCard, { type AlbumCardAction } from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import AlbumAcquisitionDialog from "../components/AlbumAcquisitionDialog";
 import Modal from "../components/Modal";
@@ -135,8 +135,9 @@ function Collection({
   // Prevents duplicate submissions before React updates isSaving.
   const savingRef = useRef(false);
 
-  const selectedAlbum = albums.find(album => album.id === selectedId);
-  const duplicate = findDuplicateAlbum(albums, { title, artist, format });
+  const selectedAlbum = selectedId === null ? undefined : albums.find(album => album.id === selectedId);
+  const duplicate = useMemo(() => isModalOpen && findDuplicateAlbum(albums, { title, artist, format }),
+    [isModalOpen, albums, title, artist, format]);
   const controlsDisabled = loadStatus !== "ready" || albums.length === 0;
   const hasFilters = Boolean(query || formats.length || sort !== "collection");
   const GroupHeading = embedded ? "h3" : "h2";
@@ -252,19 +253,20 @@ function Collection({
     notify(`"${album.title}" added to your ${pageTitle.toLowerCase()}.`, "success");
   }
 
-  function openAlbum(id: string, action?: "edit" | "delete") {
+  const openAlbum = useCallback((id: string, action?: "edit" | "delete") => {
     setAlbumActionMode(action);
     setSelectedId(id);
-  }
+  }, []);
+
+  const handleAlbumAction = useCallback(async (album: Album, action: AlbumCardAction) => {
+    if (action === "edit" || action === "delete") openAlbum(album.id, action);
+    else if (action === "acquire") setAcquiring(album);
+    else await onUpdate({ ...album, [action]: !album[action] });
+  }, [onUpdate, openAlbum]);
 
   function renderAlbumCard(album: Album) {
-    return <AlbumCard key={album.id} album={album} view={view} onClick={() => openAlbum(album.id)}
-      onPointerDown={onAlbumPointerDown ? event => onAlbumPointerDown(event, album) : undefined}
-      onAction={async action => {
-        if (action === "edit" || action === "delete") openAlbum(album.id, action);
-        else if (action === "acquire") setAcquiring(album);
-        else await onUpdate({ ...album, [action]: !album[action] });
-      }} />;
+    return <AlbumCard key={album.id} album={album} view={view} onClick={openAlbum}
+      onPointerDown={onAlbumPointerDown} onAction={handleAlbumAction} />;
   }
 
   function renderAlbumGrid(items: readonly Album[]) {
@@ -519,4 +521,4 @@ function Collection({
   );
 }
 
-export default Collection;
+export default memo(Collection);

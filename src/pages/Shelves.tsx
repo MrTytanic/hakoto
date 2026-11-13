@@ -60,6 +60,10 @@ export default function Shelves(collection: CollectionProps) {
     onCancel: announceCancel
   });
   const activeSource = pointer.drag?.source ?? picked;
+  const startDrag = pointer.start;
+  const startCollectionDrag = useCallback<NonNullable<CollectionProps["onAlbumPointerDown"]>>((event, album) => {
+    if (canArrange && !savingRef.current && event.pointerType !== "touch") startDrag(event, { albumId: album.id });
+  }, [canArrange, startDrag]);
   const dragAlbum = pointer.drag && albumsById.get(pointer.drag.source.albumId);
   const hovered = pointer.drag?.target;
   const hoverKind = pointer.drag && hovered && hovered !== "trash"
@@ -287,9 +291,7 @@ export default function Shelves(collection: CollectionProps) {
 
       <section className="shelf-collection" aria-labelledby="shelf-album-collection-title">
         <Collection {...collection} embedded
-          onAlbumPointerDown={(event, album) => {
-            if (canArrange && !savingRef.current && event.pointerType !== "touch") pointer.start(event, { albumId: album.id });
-          }}
+          onAlbumPointerDown={startCollectionDrag}
           albumAction={album => (
             <button type="button" className="album-cancel shelf-place-button" aria-label={`Place ${album.title}`}
               aria-pressed={picked?.albumId === album.id && !picked.slot}
@@ -301,8 +303,6 @@ export default function Shelves(collection: CollectionProps) {
           onDelete={async id => {
             await collection.onDelete(id);
             resetArrangement();
-            setPlacementRevision(value => value + 1);
-            setAttempt(value => value + 1);
           }}
         />
       </section>

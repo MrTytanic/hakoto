@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Archive, ArrowDown, ArrowLeft, ArrowUp, Disc3, Plus } from "lucide-react";
 import { artworkUrl } from "../artwork";
@@ -13,7 +13,7 @@ import "./Crates.css";
 
 const albumCount = (count: number) => `${count} ${count === 1 ? "album" : "albums"}`;
 
-export default function Crates({ profile, albums, revision, onUndo }: {
+function Crates({ profile, albums, revision, onUndo }: {
   profile: Profile;
   albums: Album[];
   revision: number;
@@ -33,7 +33,8 @@ export default function Crates({ profile, albums, revision, onUndo }: {
 
   const selected = crates.find(crate => crate.id === selectedId);
   const albumsById = useMemo(() => new Map(albums.map(album => [album.id, album])), [albums]);
-  const members = (selected?.albumIds ?? []).flatMap(id => albumsById.get(id) ?? []);
+  const memberIds = selected?.albumIds;
+  const members = useMemo(() => (memberIds ?? []).flatMap(id => albumsById.get(id) ?? []), [memberIds, albumsById]);
 
   useEffect(() => {
     let current = true;
@@ -196,3 +197,5 @@ export default function Crates({ profile, albums, revision, onUndo }: {
     </div>
   );
 }
+
+export default memo(Crates);

@@ -26,14 +26,19 @@ export function albumReleaseYear(album: Album) {
 export function getVisibleAlbums(albums: readonly Album[], { query, formats, sort, prioritizePinned = true }: CollectionView): Album[] {
   const search = query.trim().toLowerCase();
   const showPinnedFirst = prioritizePinned && !search;
-  const pinned = showPinnedFirst ? albums.filter(album => album.pinned) : [];
-  const matches = albums.filter(album => (!showPinnedFirst || !album.pinned) &&
-    (!formats.length || formats.includes(album.format)) &&
-    (!search || album.title.toLowerCase().includes(search) || album.artist.toLowerCase().includes(search))
-  );
+  const pinned: Album[] = [];
+  const matches: Album[] = [];
+  for (const album of albums) {
+    if (showPinnedFirst && album.pinned) {
+      pinned.push(album);
+    } else if ((!formats.length || formats.includes(album.format)) &&
+      (!search || album.title.toLowerCase().includes(search) || album.artist.toLowerCase().includes(search))) {
+      matches.push(album);
+    }
+  }
 
   const sorted = sortMatches(matches, sort);
-  return [...pinned, ...sorted];
+  return pinned.length ? pinned.concat(sorted) : sorted;
 }
 
 function sortMatches(matches: Album[], sort: CollectionSort) {
@@ -62,9 +67,12 @@ export function groupVisibleAlbums(albums: readonly Album[], sort: CollectionSor
 
   // Albums already reflect the active filters and sort order.
   const buckets = new Map<string, Album[]>();
-  const pinned = prioritizePinned ? albums.filter(album => album.pinned) : [];
+  const pinned: Album[] = [];
   for (const album of albums) {
-    if (prioritizePinned && album.pinned) continue;
+    if (prioritizePinned && album.pinned) {
+      pinned.push(album);
+      continue;
+    }
     const initial = album.title.trimStart().normalize("NFD").match(/^[a-z]/i)?.[0];
     const heading = initial?.toUpperCase() ?? "#";
     const group = buckets.get(heading);

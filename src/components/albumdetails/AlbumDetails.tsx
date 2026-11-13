@@ -1,5 +1,5 @@
 
-import { useRef, useState, type FormEvent, type RefObject } from "react";
+import { useMemo, useRef, useState, type FormEvent, type RefObject } from "react";
 import { Disc3, Heart, Pencil, Trash2, X } from "lucide-react";
 import type { Album } from "../../types/Album";
 import { albumFormats } from "../../constants/albumFormats";
@@ -47,7 +47,8 @@ function AlbumDetails({
 
   const [metadata, setMetadata] = useState(() => albumMetadata(album));
 
-  const duplicate = findDuplicateAlbum(albums, { id: album.id, title, artist, format });
+  const duplicate = useMemo(() => editing && findDuplicateAlbum(albums, { id: album.id, title, artist, format }),
+    [editing, albums, album.id, title, artist, format]);
 
   const [artwork, setArtwork] = useState<File | null>();
 

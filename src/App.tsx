@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import type { Profile, ProfileLoadStatus } from "./types/Profile";
 import { encodeArtwork, type ArtworkChange } from "./artwork";
@@ -68,8 +68,15 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
   const savingPicture = useRef(false);
 
   const [albums, setAlbums] = useState<Album[]>([]);
-  const ownedAlbums = useMemo(() => albums.filter(album => album.ownership === "owned"), [albums]);
-  const wishlistAlbums = useMemo(() => albums.filter(album => album.ownership === "wishlist"), [albums]);
+  const { ownedAlbums, wishlistAlbums } = useMemo(() => {
+    const ownedAlbums: Album[] = [];
+    const wishlistAlbums: Album[] = [];
+    for (const album of albums) {
+      if (album.ownership === "owned") ownedAlbums.push(album);
+      else if (album.ownership === "wishlist") wishlistAlbums.push(album);
+    }
+    return { ownedAlbums, wishlistAlbums };
+  }, [albums]);
   const [albumLoadStatus, setAlbumLoadStatus] = useState<AlbumLoadStatus>("loading");
   const [albumLoadAttempt, setAlbumLoadAttempt] = useState(0);
   const [layoutRevision, setLayoutRevision] = useState(0);
@@ -81,7 +88,17 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
   const undoBusy = useRef(new Set<string>());
   const deletedUndoTokens = useRef(new Set<string>());
 
-  function dismissNotification(id: string) {
+  const notify = useCallback((message: string, type: "success" | "error" = "success") => {
+    const id = crypto.randomUUID();
+    setNotifications(prev => [...prev, { id, message, type }]);
+    const timer = setTimeout(() => {
+      setNotifications(prev => prev.filter(item => item.id !== id));
+      notificationTimers.current.delete(id);
+    }, 4000);
+    notificationTimers.current.set(id, timer);
+  }, []);
+
+  const dismissNotification = useCallback((id: string) => {
     if (undoBusy.current.has(id)) return;
     const timer = notificationTimers.current.get(id);
 
@@ -94,9 +111,9 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     const discard = undoCleanup.current.get(id);
     undoCleanup.current.delete(id);
     if (discard) void discard().catch(() => notify("Could not finish deletion cleanup. A recovery copy was retained.", "error"));
-  }
+  }, [notify]);
 
-  function notifyUndo(message: string, undo: () => Promise<void>, discard?: () => Promise<void>) {
+  const notifyUndo = useCallback((message: string, undo: () => Promise<void>, discard?: () => Promise<void>) => {
     const id = crypto.randomUUID();
     setNotifications(prev => {
       const recent = new Set(prev.filter(item => item.undo).slice(-2).map(item => item.id));
@@ -104,13 +121,14 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     });
     if (discard) undoCleanup.current.set(id, discard);
     notificationTimers.current.set(id, setTimeout(() => dismissNotification(id), 30000));
-  }
+  }, [dismissNotification]);
 
-  function offerDeletedUndo(token: string, title: string, position?: number) {
+  const offerDeletedUndo = useCallback((token: string, title: string, position?: number) => {
     if (deletedUndoTokens.current.has(token)) return;
     deletedUndoTokens.current.add(token);
     notifyUndo(`"${title}" removed.`, async () => {
       const restored = await invoke<Album>("restore_deleted_album", { token });
+      deletedUndoTokens.current.delete(token);
       setAlbums(prev => {
         const next = [...prev];
         next.splice(Math.max(0, Math.min(position ?? next.length, next.length)), 0, restored);
@@ -120,7 +138,7 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
       await invoke("discard_deleted_album", { token });
       deletedUndoTokens.current.delete(token);
     });
-  }
+  }, [notifyUndo]);
 
   async function undoNotification(id: string) {
     const notification = notifications.find(item => item.id === id);
@@ -131,6 +149,7 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     try {
       await notification.undo();
       setLayoutRevision(value => value + 1);
+      undoCleanup.current.delete(id);
       undoBusy.current.delete(id);
       dismissNotification(id);
     } catch (error) {
@@ -141,19 +160,6 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
       notify(`Undo failed. Your current data is unchanged. ${String(error)}`, "error");
       notificationTimers.current.set(id, setTimeout(() => dismissNotification(id), 30000));
     }
-  }
-
-  function notify(message: string, type: "success" | "error" = "success") {
-    const id = crypto.randomUUID();
-
-    setNotifications(prev => [...prev, { id, message, type }]);
-
-    const timer = setTimeout(() => {
-      setNotifications(prev => prev.filter(item => item.id !== id));
-      notificationTimers.current.delete(id);
-    }, 4000);
-
-    notificationTimers.current.set(id, timer);
   }
 
   // Cleanup notification timers when App unmounts.
@@ -173,12 +179,9 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     async function loadAlbums() {
       try {
         const { owned, wishlist } = await invoke<{ owned: Album[]; wishlist: Album[] }>("get_album_library");
-        const deleted = await invoke<{ token: string; title: string }[]>("get_deleted_albums");
-
         if (!cancelled) {
           setAlbums([...owned, ...wishlist]);
           setAlbumLoadStatus("ready");
-          deleted.forEach(item => offerDeletedUndo(item.token, item.title));
         }
       } catch (error) {
         console.error("Failed to load albums:", error);
@@ -196,10 +199,27 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     };
   }, [albumLoadAttempt]);
 
-  function retryAlbums() {
+  // Offer recoveries only after the library is ready so a late load cannot replace an undo.
+  useEffect(() => {
+    if (albumLoadStatus !== "ready") return;
+    let cancelled = false;
+    invoke<{ token: string; title: string }[]>("get_deleted_albums").then(
+      deleted => {
+        if (!cancelled) deleted.forEach(item => offerDeletedUndo(item.token, item.title));
+      },
+      error => {
+        if (!cancelled) notify(`Couldn’t load album recovery copies. ${String(error)}`, "error");
+      }
+    );
+    return () => { cancelled = true; };
+  }, [albumLoadStatus, notify, offerDeletedUndo]);
+
+  const retryAlbums = useCallback(() => {
     setAlbumLoadStatus("loading");
     setAlbumLoadAttempt(attempt => attempt + 1);
-  }
+  }, []);
+
+  const browseCollection = useCallback(() => setActivePage("Collection"), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -265,11 +285,11 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     }
   }
 
-  function addAlbum(album: Album) {
+  const addAlbum = useCallback((album: Album) => {
     setAlbums(prev => [...prev, album]);
-  }
+  }, []);
 
-  async function updateAlbum(album: Album, artwork?: ArtworkChange) {
+  const updateAlbum = useCallback(async (album: Album, artwork?: ArtworkChange) => {
     try {
       const updated = await invoke<Album>("update_album", { album, artwork });
       setAlbums(prev =>
@@ -280,31 +300,29 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
       notify(typeof error === "string" ? error : "Failed to update album. Please try again.", "error");
       throw error;
     }
-  }
+  }, [notify]);
 
-  async function deleteAlbum(id: string) {
-    const album = albums.find(item => item.id === id);
+  const deleteAlbum = useCallback(async (id: string) => {
+    const position = albums.findIndex(item => item.id === id);
 
     try {
       const token = await invoke<string>("delete_album_recoverable", { id });
-      const position = albums.findIndex(item => item.id === id);
-
       setAlbums(prev => prev.filter(item => item.id !== id));
       setLayoutRevision(value => value + 1);
 
-      offerDeletedUndo(token, album?.title ?? "Album", position);
+      offerDeletedUndo(token, albums[position]?.title ?? "Album", position);
     } catch (error) {
       console.error("Failed to delete album:", error);
       notify("Failed to delete album. Please try again.", "error");
       throw error;
     }
-  }
+  }, [albums, notify, offerDeletedUndo]);
 
-  async function acquireAlbum(id: string, format: string, dateAcquired: string) {
+  const acquireAlbum = useCallback(async (id: string, format: string, dateAcquired: string) => {
     const acquired = await invoke<Album>("acquire_album", { id, format, dateAcquired });
     setAlbums(prev => prev.map(album => album.id === id ? acquired : album));
     notify(`"${acquired.title}" added to your collection.`);
-  }
+  }, [notify]);
 
   const pages: Record<string, React.ReactNode> = {
     Collection: (
@@ -343,7 +361,7 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
         albums={ownedAlbums}
         onUpdate={updateAlbum}
         onDelete={deleteAlbum}
-        onBrowseCollection={() => setActivePage("Collection")}
+        onBrowseCollection={browseCollection}
       />
     ),
 
@@ -365,7 +383,7 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
       <Crates profile={profile} albums={ownedAlbums} revision={layoutRevision} onUndo={notifyUndo} />
     ),
     Statistics: albumLoadStatus === "error" ? <CollectionLoadError onRetry={retryAlbums} /> : (
-      <Statistics profile={profile} albums={ownedAlbums} onBrowseCollection={() => setActivePage("Collection")} />
+      <Statistics profile={profile} albums={ownedAlbums} onBrowseCollection={browseCollection} />
     ),
     Settings: (
       <Settings

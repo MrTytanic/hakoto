@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { memo, useMemo } from "react";
 import ProfileHeader from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
 import type { Album } from "../types/Album";
@@ -91,4 +91,4 @@ function Statistics({ profile, albums, onBrowseCollection }: {
   );
 }
 
-export default Statistics;
+export default memo(Statistics);

@@ -59,6 +59,21 @@ Windows end-to-end time to first render and Linux timings remain unmeasured. The
 
 ## Reproduce
 
+### Frontend rendering follow-up
+
+Production React in headless Edge updated the favorite flag of one visible album with a new album object and a fresh containing array. Every other album and callback kept its identity. The fixture used 25 visible cards, synthetic artwork filenames, and a stub for Tauri's artwork URL conversion. Timings are medians of 101 synchronous React/DOM updates after 30 warm-ups. The derivation column uses the same search, sort, grouping and pagination workload as the baseline.
+
+| Albums | Card update before → after (ms) | Search derivation before → after (ms) |
+| ---: | ---: | ---: |
+| 100 | 0.7 → 0.2 | 0.072 → 0.064 |
+| 500 | 0.8 → 0.2 | 0.448 → 0.444 |
+| 1,000 | 0.8 → 0.2 | 1.004 → 0.928 |
+| 2,000 | 0.7 → 0.2 | 2.144 → 2.036 |
+
+Each run made 2,525 artwork URL conversions before the change and zero during the timed updates afterward. URL conversions count repeated rendering work. Browser paint, real artwork decoding, native IPC, and memory usage were outside this measurement.
+
+### Baseline commands
+
 Run from the repository root with the locked frontend and Rust dependencies available. For the build sizes, use `npm run build`, then run `cargo build --locked --offline --bin hakoto` and `cargo build --locked --offline --release --features tauri/custom-protocol` from `src-tauri`. Inspect the executables with `objdump -h` and use file lengths for artifact sizes.
 
 <details>

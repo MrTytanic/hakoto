@@ -119,13 +119,13 @@ export function useShelfDrag(root: RefObject<HTMLDivElement | null>, {
     frame.current = requestAnimationFrame(tick);
   }
 
-  function start(event: ReactPointerEvent<HTMLElement>, source: ArrangementSource) {
+  const start = useCallback((event: ReactPointerEvent<HTMLElement>, source: ArrangementSource) => {
     if (gesture.current || !event.isPrimary || event.button !== 0) return;
     const element = event.currentTarget;
     element.setPointerCapture(event.pointerId);
     const point = { x: event.clientX, y: event.clientY };
     gesture.current = { pointerId: event.pointerId, element, origin: point, point, source, active: false, target: null };
-  }
+  }, []);
 
   function onPointerMove(event: PointerEvent) {
     const current = gesture.current;
