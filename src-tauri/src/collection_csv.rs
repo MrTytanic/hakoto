@@ -428,9 +428,6 @@ pub fn prepare(connection: &Connection, text: &str) -> Result<PreparedImport> {
         };
         rows.push((preview, album));
     }
-    if rows.is_empty() {
-        return Err("The CSV contains no albums.".into());
-    }
     Ok(PreparedImport { rows })
 }
 
@@ -492,6 +489,21 @@ pub fn import(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn empty_collection_export_is_a_valid_no_op_import() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        let path = directory.path().join("Empty collection – 日本語.CSV");
+        assert_eq!(
+            export(&path, database::get_album_library(&mut db).unwrap(), true).unwrap(),
+            0
+        );
+        let preview = prepare(&db, &read(&path).unwrap()).unwrap();
+        assert!(preview.preview().is_empty());
+        assert!(import(&mut db, &preview, &[]).unwrap().is_empty());
+        assert!(prepare(&db, "").is_err());
+    }
 
     #[test]
     fn export_round_trips_utf8_quotes_multiline_metadata_and_formula_escaping() {
@@ -636,5 +648,34 @@ mod tests {
                 .contains("Preview")
         );
         assert!(database::get_album(&db, "first").unwrap().is_none());
+    }
+
+    #[test]
+    fn database_failure_rolls_back_successful_rows_and_preserves_existing_data() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut db = database::initialize_database(directory.path(), None).unwrap();
+        db.execute_batch(
+            "INSERT INTO albums (id,title,artist,format) VALUES ('original','Original','Artist','CD');
+             CREATE TRIGGER reject_csv_write BEFORE INSERT ON albums
+             WHEN NEW.id = 'blocked' BEGIN SELECT RAISE(ABORT, 'write blocked'); END;",
+        ).unwrap();
+        let preview = prepare(
+            &db,
+            "id,title,artist,format\nfirst,First,Artist,CD\nblocked,Second,Artist,CD",
+        )
+        .unwrap();
+        assert!(preview.preview().iter().all(|row| row.error.is_none()));
+        assert!(
+            import(&mut db, &preview, &[])
+                .err()
+                .unwrap()
+                .contains("write blocked")
+        );
+        drop(db);
+        let db = database::initialize_database(directory.path(), None).unwrap();
+        let albums = database::get_albums(&db).unwrap();
+        assert_eq!(albums.len(), 1);
+        assert_eq!(albums[0].id, "original");
+        assert_eq!(albums[0].title, "Original");
     }
 }

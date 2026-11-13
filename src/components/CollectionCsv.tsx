@@ -59,7 +59,9 @@ function CsvImportDialog({ preview, onImport, onClose, fallbackFocus }: {
       aria-busy={busy} fallbackFocus={fallbackFocus} onDismiss={() => { if (!pending.current) onClose(); }}>
       <div className="album-modal-header"><h2 id="csv-preview-title">Review CSV Import</h2></div>
       <p id="csv-preview-help">Duplicates match an ID or a title, artist, and format. Import creates a separate record if the ID is in use.</p>
-      <p role="status">{albumCount(importCount)} ready to import. {duplicateRecords.length - approved.size} duplicate records skipped. {invalidCount} invalid records skipped.</p>
+      <p role="status">{preview.rows.length === 0 ? "This CSV has no album records." : (
+        <>{albumCount(importCount)} ready to import. {duplicateRecords.length - approved.size} duplicate records skipped. {invalidCount} invalid records skipped.</>
+      )}</p>
       {issues.length > 0 && <div className="csv-preview-tools">
         <label><input type="checkbox" checked={issuesOnly} disabled={busy} onChange={event => {
           setIssuesOnly(event.target.checked);

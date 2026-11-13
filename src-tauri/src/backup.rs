@@ -538,7 +538,7 @@ mod tests {
     #[test]
     fn restores_wal_snapshot_images_settings_and_references_at_another_location() {
         let workspace = tempfile::tempdir().unwrap();
-        let source = workspace.path().join("original");
+        let source = workspace.path().join("Original collection – 日本語");
         let mut storage = Storage::open(&source, None).unwrap();
         let image = "0123456789abcdef0123456789abcdef.webp";
         artwork::write(&storage.directory, image, artwork::TEST_WEBP).unwrap();
@@ -549,6 +549,7 @@ mod tests {
         )
         .unwrap()
         .unwrap();
+        profile::set_display_name(&storage.connection, "Björk").unwrap();
         storage
             .connection
             .execute_batch(
@@ -562,15 +563,15 @@ mod tests {
              INSERT INTO crate_albums VALUES (7,'owned',0);",
             )
             .unwrap();
-        let zip = workspace.path().join("backup.zip");
+        let zip = workspace.path().join("Backup – 日本語.ZIP");
         export(&storage, &zip, &settings()).unwrap();
         assert!(export(&storage, &zip, &settings()).is_err());
         drop(storage);
         fs::rename(source, workspace.path().join("moved")).unwrap();
 
-        let destination = workspace.path().join("destination");
+        let destination = workspace.path().join("Restored collection – 日本語");
         let mut storage = Storage::open(&destination, None).unwrap();
-        storage.connection.execute("INSERT INTO albums (id,title,artist,format) VALUES ('original','Original','Artist','CD')", []).unwrap();
+        storage.connection.execute("INSERT INTO albums (id,title,artist,format) VALUES ('owned','Original title with conflicting ID','Artist','CD')", []).unwrap();
         let staged = stage(&zip, storage.default_dir()).unwrap();
         let token = staged.summary.token;
         assert_eq!(
@@ -582,10 +583,12 @@ mod tests {
             ),
             (1, 1, 1, 1)
         );
-        assert!(
-            database::get_album(&storage.connection, "original")
+        assert_eq!(
+            database::get_album(&storage.connection, "owned")
                 .unwrap()
-                .is_some()
+                .unwrap()
+                .title,
+            "Original title with conflicting ID"
         );
         storage.activate_restored(staged.staging).unwrap();
         assert_eq!(
@@ -596,12 +599,24 @@ mod tests {
 
         let mut storage = Storage::open(&destination, None).unwrap();
         let pending = pending_settings(&storage).unwrap().unwrap();
-        assert_eq!(pending.settings.collection_page_size, "50");
+        assert_eq!(
+            serde_json::to_value(pending.settings).unwrap(),
+            serde_json::to_value(settings()).unwrap()
+        );
         assert_eq!(pending.restore_id, token);
         let owned = database::get_album(&storage.connection, "owned")
             .unwrap()
             .unwrap();
         assert_eq!(owned.artwork.as_deref(), Some(image));
+        assert_eq!(owned.title, "Album");
+        let wishlist = database::get_album(&storage.connection, "wish")
+            .unwrap()
+            .unwrap();
+        assert_eq!(wishlist.ownership, database::Ownership::Wishlist);
+        assert_eq!(
+            profile::get(&storage.connection).unwrap().display_name,
+            "Björk"
+        );
         assert_eq!(
             artwork::read(&storage.directory, image).unwrap(),
             artwork::TEST_WEBP
@@ -629,11 +644,55 @@ mod tests {
         finish_settings(&storage, &token).unwrap();
         assert!(pending_settings(&storage).unwrap().is_none());
         let original = Connection::open(destination.join(DATABASE_NAME)).unwrap();
-        assert!(
-            database::get_album(&original, "original")
+        assert_eq!(
+            database::get_album(&original, "owned")
                 .unwrap()
-                .is_some()
+                .unwrap()
+                .title,
+            "Original title with conflicting ID"
         );
+    }
+
+    #[test]
+    fn restores_an_empty_collection_and_retains_the_previous_collection() {
+        let workspace = tempfile::tempdir().unwrap();
+        let source = Storage::open(&workspace.path().join("empty"), None).unwrap();
+        let zip = workspace.path().join("empty.zip");
+        export(&source, &zip, &settings()).unwrap();
+
+        let destination = workspace.path().join("populated");
+        let mut storage = Storage::open(&destination, None).unwrap();
+        storage
+            .connection
+            .execute(
+                "INSERT INTO albums (id,title,artist,format) VALUES ('keep','Keep','Artist','CD')",
+                [],
+            )
+            .unwrap();
+        let staged = stage(&zip, storage.default_dir()).unwrap();
+        assert_eq!(
+            (
+                staged.summary.owned_albums,
+                staged.summary.wishlist_albums,
+                staged.summary.shelves,
+                staged.summary.crates
+            ),
+            (0, 0, 0, 0)
+        );
+        storage.activate_restored(staged.staging).unwrap();
+        drop(storage);
+
+        let restored = Storage::open(&destination, None).unwrap();
+        assert!(
+            database::get_albums(&restored.connection)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(restored.directory.join("artwork").is_dir());
+        assert!(restored.directory.join("profile-images").is_dir());
+        let previous =
+            Connection::open(restored.previous_location().unwrap().join(DATABASE_NAME)).unwrap();
+        assert!(database::get_album(&previous, "keep").unwrap().is_some());
     }
 
     #[test]
@@ -653,7 +712,15 @@ mod tests {
         let invalid = workspace.path().join("invalid.zip");
         fs::write(&invalid, b"not a zip").unwrap();
         assert!(stage(&invalid, storage.default_dir()).is_err());
-        for issue in ["version", "hash", "traversal", "symlink", "size"] {
+        for issue in [
+            "version",
+            "hash",
+            "traversal",
+            "windows-traversal",
+            "drive-path",
+            "symlink",
+            "size",
+        ] {
             let mut manifest: Manifest = serde_json::from_slice(&manifest_data).unwrap();
             let mut zip = ZipWriter::new(File::create(&invalid).unwrap());
             for entry in &original.entries {
@@ -665,6 +732,15 @@ mod tests {
                 "hash" => manifest.entries[0].sha256 = "0".repeat(64),
                 "traversal" => {
                     zip.start_file("../outside", options(1)).unwrap();
+                    zip.write_all(b"x").unwrap();
+                }
+                "windows-traversal" | "drive-path" => {
+                    let name = if issue == "drive-path" {
+                        r"C:\outside"
+                    } else {
+                        r"artwork\..\outside"
+                    };
+                    zip.start_file(name, options(1)).unwrap();
                     zip.write_all(b"x").unwrap();
                 }
                 "symlink" => zip
