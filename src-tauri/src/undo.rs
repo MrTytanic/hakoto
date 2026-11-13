@@ -163,7 +163,18 @@ pub fn restore(
         return Err("Album restoration was not completed. The recovery copy is retained.".into());
     }
     for placement in snapshot.placements {
-        // Plain INSERT rejects occupied slots. Foreign keys and bounds triggers reject changed shelves.
+        // A deleted shelf no longer has a placement to restore, just like a deleted crate.
+        let shelf_exists: bool = transaction
+            .query_row(
+                "SELECT EXISTS (SELECT 1 FROM shelves WHERE id = ?1)",
+                [placement.shelf_id],
+                |row| row.get(0),
+            )
+            .map_err(database_error)?;
+        if !shelf_exists {
+            continue;
+        }
+        // An occupied or out-of-bounds slot on a surviving shelf aborts the restore.
         let restored = transaction
             .execute(
                 "INSERT INTO shelf_placements VALUES (?1, ?2, ?3, ?4)",

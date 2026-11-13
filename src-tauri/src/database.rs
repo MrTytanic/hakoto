@@ -705,6 +705,60 @@ mod tests {
     }
 
     #[test]
+    fn undo_restores_album_and_artwork_after_its_shelf_and_crate_are_deleted() {
+        let directory = TestDirectory::new();
+        let path = &directory.0;
+        let mut db = initialize_database(path, None).unwrap();
+        let saved = save_album(&mut db, path, album("recover"), Some(COVER.to_vec())).unwrap();
+        let copy = save_album(&mut db, path, album("other-copy"), None).unwrap();
+        assert_eq!(
+            (&saved.title, &saved.artist, &saved.format),
+            (&copy.title, &copy.artist, &copy.format)
+        );
+        db.execute_batch(
+            "INSERT INTO shelves VALUES (1, 'Deleted shelf', 1, 2, 'vertical'),
+                                        (2, 'Retained shelf', 1, 1, 'vertical');
+             INSERT INTO shelf_placements VALUES (1, 0, 0, 'recover'), (1, 0, 1, 'other-copy'),
+                                                (2, 0, 0, 'recover');
+             INSERT INTO crates VALUES (1, 'Deleted crate', NULL), (2, 'Retained crate', NULL);
+             INSERT INTO crate_albums VALUES (1, 'recover', 0), (1, 'other-copy', 1),
+                                             (2, 'recover', 0);",
+        )
+        .unwrap();
+        let token = crate::undo::delete(&mut db, "recover").unwrap();
+        shelves::delete_shelf(&db, 1).unwrap();
+        crate::crates::delete(&db, 1).unwrap();
+        assert!(get_album(&db, &copy.id).unwrap().is_some());
+        drop(db);
+
+        let mut db = initialize_database(path, None).unwrap();
+        clean_orphaned_artwork(&mut db, path).unwrap();
+        let restored = crate::undo::restore(&mut db, path, &token).unwrap();
+        assert_eq!(
+            serde_json::to_value(&restored).unwrap(),
+            serde_json::to_value(saved).unwrap()
+        );
+        assert_eq!(
+            artwork::read(path, restored.artwork.as_deref().unwrap()).as_deref(),
+            Some(COVER)
+        );
+        assert_eq!(
+            shelves::load_shelf(&mut db, 2).unwrap().placements[0].album_id,
+            "recover"
+        );
+        assert_eq!(
+            db.query_row(
+                "SELECT album_id FROM crate_albums WHERE crate_id = 2",
+                [],
+                |row| row.get::<_, String>(0)
+            )
+            .unwrap(),
+            "recover"
+        );
+        assert!(crate::undo::pending(&db).unwrap().is_empty());
+    }
+
+    #[test]
     fn failed_deletion_and_conflicting_or_missing_artwork_restores_roll_back() {
         let directory = TestDirectory::new();
         let path = &directory.0;
@@ -1145,7 +1199,7 @@ mod tests {
     #[test]
     fn migrates_text_years_with_shelf_foreign_keys_and_legacy_undo_records() {
         let directory = TestDirectory::new();
-        let mut db = Connection::open(directory.0.join(DATABASE_NAME)).unwrap();
+        let db = Connection::open(directory.0.join(DATABASE_NAME)).unwrap();
         db.execute_batch(
             "CREATE TABLE albums (
                 id TEXT PRIMARY KEY, title TEXT NOT NULL, artist TEXT NOT NULL, format TEXT NOT NULL,
@@ -1175,9 +1229,6 @@ mod tests {
             [archived.to_string()],
         )
         .unwrap();
-        let transaction = db.transaction().unwrap();
-        migrate_album_columns(&transaction).unwrap();
-        transaction.commit().unwrap();
         drop(db);
 
         let mut db = initialize_database(&directory.0, None).unwrap();

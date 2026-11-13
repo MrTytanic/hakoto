@@ -798,6 +798,53 @@ mod tests {
     }
 
     #[test]
+    fn failed_activation_keeps_the_previous_location_and_collection_after_restart() {
+        let workspace = tempfile::tempdir().unwrap();
+        let default = workspace.path().join("default");
+        let destination = workspace.path().join("destination");
+        fs::create_dir(&destination).unwrap();
+        let mut storage = Storage::open(&default, None).unwrap();
+        let image = "0123456789abcdef0123456789abcdef.webp";
+        artwork::write(&storage.directory, image, artwork::TEST_WEBP).unwrap();
+        storage.connection.execute(
+            "INSERT INTO albums (id,title,artist,format,artwork) VALUES ('backup','Album','Artist','CD',?1)",
+            [image],
+        ).unwrap();
+        let zip = workspace.path().join("backup.zip");
+        export(&storage, &zip, &settings()).unwrap();
+        storage.relocate(&destination).unwrap();
+        let active = storage.directory.clone();
+        storage
+            .connection
+            .execute(
+                "UPDATE albums SET title = 'Current title' WHERE id = 'backup'",
+                [],
+            )
+            .unwrap();
+        let staged = stage(&zip, storage.default_dir()).unwrap();
+        let staging_path = staged.staging.path().to_owned();
+        fs::remove_file(staging_path.join("artwork").join(image)).unwrap();
+        assert!(storage.activate_restored(staged.staging).is_err());
+        assert_eq!(storage.directory, active);
+        assert!(!staging_path.exists());
+        drop(storage);
+
+        let storage = Storage::open(&default, None).unwrap();
+        assert_eq!(storage.directory, active);
+        assert_eq!(
+            database::get_album(&storage.connection, "backup")
+                .unwrap()
+                .unwrap()
+                .title,
+            "Current title"
+        );
+        assert_eq!(
+            artwork::read(&storage.directory, image).as_deref(),
+            Some(artwork::TEST_WEBP)
+        );
+    }
+
+    #[test]
     fn rejects_invalid_archives_before_switching_storage() {
         let workspace = tempfile::tempdir().unwrap();
         let mut storage = Storage::open(&workspace.path().join("collection"), None).unwrap();
