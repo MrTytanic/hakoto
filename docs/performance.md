@@ -85,6 +85,29 @@ Unchanged cells reuse their rendered content. Drag tracking schedules frames for
 
 Spine requests sharing a filename share one read and decode. Unmounting cancels queued work once its final consumer leaves. The cache stores palette results only. In-flight work finishes and releases the blob URL, image source, and canvas. Rust preallocates the bounded read buffer from file metadata. These changes were checked with a queued-read regression test. Browser paint, real decoding time, memory usage, and native drag-to-commit latency were outside the grid benchmark.
 
+### Backend follow-up
+
+Normal startup uses two native requests, down from four. The restored-preferences check still precedes React initialization. One background request supplies the library, profile, and recoverable deletions, with separate results so each failure keeps its existing handling. Album and profile retries use their dedicated commands. The library query reads both ownership groups in one SQLite statement and preserves row order within each group. It still returns the full library because collection search, statistics, crates, and shelves use it.
+
+SQLite's query plan showed a table scan for each branch of the old artwork reference lookup, repeated for each managed file. Cleanup now scans albums and Undo once and holds a set of valid referenced filenames while walking the artwork directory. The writer transaction covers reference collection and deletion. The set uses memory proportional to the number of distinct covers and is dropped before startup completes. The library query plan shows one ordered table scan. Neither change requires an index or changes the schema accepted by backup restore.
+
+The same Windows release harness and generated fixture described below compared the starting branch revision `c703112` with this change. Values are medians in milliseconds. The standalone library JSON size was identical, including 633,587 bytes at 2,000 albums. These are backend timings and exclude WebView startup and IPC transport.
+
+| Albums | Artwork cleanup before → after (ms) | Library read before → after (ms) |
+| ---: | ---: | ---: |
+| 100 | 1.838 → 1.058 | 0.474 → 0.354 |
+| 500 | 10.176 → 1.338 | 1.076 → 0.922 |
+| 1,000 | 26.743 → 2.424 | 1.865 → 1.762 |
+| 2,000 | 99.136 → 3.960 | 3.554 → 2.810 |
+
+CSV export uses a buffered writer and decodes one album at a time. The storage lock stays held during export to preserve the snapshot on the existing connection, so exporting to a slow drive can delay other storage operations. Duplicate detection reads only IDs, titles, artists, and formats. Legacy migration streams source albums using its existing read-only connection. The separate writer connection during relocation still protects the online backup snapshot against concurrent writes.
+
+The npm opener package had no source imports and was removed. Every direct Cargo dependency has a source or build-script use. The Rust opener and native dialog plugins support storage workflows. No new dependencies or toolchains were used.
+
+The release profile uses `opt-level = "s"` and retains fat LTO, one codegen unit, stripping, and the existing abort-on-panic behavior. Fat LTO and one codegen unit trade build time for cross-crate optimization. Stripping limits release symbol diagnostics, and abort-on-panic terminates the process without unwinding. Debug settings remain available for diagnostics. The Rust timing harness uses Cargo's default optimization level, so its timings measure source changes and do not establish the speed of the size-optimized Tauri build. [Cargo release profiles](https://doc.rust-lang.org/cargo/reference/profiles.html) · [Tauri app size guidance](https://tauri.app/concept/size/)
+
+The Windows GNU release executable with the embedded frontend went from 7,771,648 bytes (7.41 MiB) at `c703112` to 5,285,376 bytes (5.04 MiB), a 32.0% reduction across the backend and profile changes. The final uncompressed Vite output was 693,637 bytes. Installer sizes, Linux builds, end-to-end startup latency, and WebView memory usage were outside this measurement. The local environment had no configured installer tools or Linux runtime.
+
 ### Baseline commands
 
 Run from the repository root with the locked frontend and Rust dependencies available. For the build sizes, use `npm run build`, then run `cargo build --locked --offline --bin hakoto` and `cargo build --locked --offline --release --features tauri/custom-protocol` from `src-tauri`. Inspect the executables with `objdump -h` and use file lengths for artifact sizes.

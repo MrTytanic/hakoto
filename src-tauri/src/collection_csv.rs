@@ -1,7 +1,7 @@
 use std::{
     collections::{HashMap, HashSet},
     fs::File,
-    io::{self, Read, Write},
+    io::{self, BufWriter, Read, Write},
     path::Path,
 };
 
@@ -60,11 +60,13 @@ fn write_record(mut writer: impl Write, fields: &[&str], protect: bool) -> io::R
 
 fn write_albums(
     mut writer: impl Write,
-    albums: impl IntoIterator<Item = Album>,
-) -> io::Result<usize> {
-    write_record(&mut writer, &HEADERS, false)?;
+    albums: impl Iterator<Item = rusqlite::Result<Album>>,
+) -> Result<usize> {
+    write_record(&mut writer, &HEADERS, false)
+        .map_err(|_| "Could not write the CSV. Check available disk space.")?;
     let mut count = 0;
     for album in albums {
+        let album = album.map_err(database::database_error)?;
         write_record(
             &mut writer,
             &[
@@ -92,17 +94,14 @@ fn write_albums(
                 album.disc_size.as_deref().unwrap_or_default(),
             ],
             true,
-        )?;
+        )
+        .map_err(|_| "Could not write the CSV. Check available disk space.")?;
         count += 1;
     }
     Ok(count)
 }
 
-pub fn export(
-    path: &Path,
-    library: database::AlbumLibrary,
-    include_wishlist: bool,
-) -> Result<usize> {
+pub fn export(path: &Path, connection: &Connection, include_wishlist: bool) -> Result<usize> {
     if !path
         .extension()
         .and_then(|ext| ext.to_str())
@@ -113,14 +112,23 @@ pub fn export(
     let path = storage::export_path(path)?;
     let mut file = tempfile::NamedTempFile::new_in(path.parent().unwrap())
         .map_err(|_| "Could not create the CSV. Check the destination permissions.")?;
-    let count = write_albums(
-        &mut file,
-        library
-            .owned
-            .into_iter()
-            .chain(library.wishlist.into_iter().filter(|_| include_wishlist)),
-    )
-    .map_err(|_| "Could not write the CSV. Check available disk space.")?;
+    let count = {
+        let mut writer = BufWriter::new(&mut file);
+        let mut statement = connection.prepare(&format!(
+            "SELECT * FROM (SELECT {} FROM albums WHERE ownership = 'owned' ORDER BY rowid)
+             UNION ALL
+             SELECT * FROM (SELECT {} FROM albums WHERE ?1 AND ownership = 'wishlist' ORDER BY rowid)",
+            database::ALBUM_COLUMNS, database::ALBUM_COLUMNS,
+        )).map_err(database::database_error)?;
+        let albums = statement
+            .query_map([include_wishlist], database::read_album)
+            .map_err(database::database_error)?;
+        let count = write_albums(&mut writer, albums)?;
+        writer
+            .flush()
+            .map_err(|_| "Could not write the CSV. Check available disk space.")?;
+        count
+    };
     file.as_file()
         .sync_all()
         .map_err(|_| "Could not finish writing the CSV. Check the destination and try again.")?;
@@ -251,7 +259,7 @@ impl PreparedImport {
     }
 }
 
-fn duplicate_key(album: &Album) -> (String, String, String) {
+fn duplicate_key(title: &str, artist: &str, format: &str) -> (String, String, String) {
     fn normalize(value: &str) -> String {
         value
             .split_whitespace()
@@ -259,11 +267,7 @@ fn duplicate_key(album: &Album) -> (String, String, String) {
             .join(" ")
             .to_lowercase()
     }
-    (
-        normalize(&album.title),
-        normalize(&album.artist),
-        normalize(&album.format),
-    )
+    (normalize(title), normalize(artist), normalize(format))
 }
 
 #[derive(Default)]
@@ -275,8 +279,18 @@ struct Existing {
 impl Existing {
     fn load(connection: &Connection) -> rusqlite::Result<Self> {
         let mut existing = Self::default();
-        for album in database::get_albums(connection)? {
-            existing.track(&album);
+        let mut albums = connection.prepare("SELECT id, title, artist, format FROM albums")?;
+        let mut rows = albums.query([])?;
+        while let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            if !id.is_empty() {
+                existing.ids.insert(id);
+            }
+            existing.keys.insert(duplicate_key(
+                row.get_ref(1)?.as_str()?,
+                row.get_ref(2)?.as_str()?,
+                row.get_ref(3)?.as_str()?,
+            ));
         }
         let mut statement = connection.prepare(
             "SELECT json_extract(payload, '$.album.id') FROM undo_albums WHERE json_valid(payload)",
@@ -290,14 +304,18 @@ impl Existing {
     }
 
     fn duplicate(&self, album: &Album) -> bool {
-        self.ids.contains(&album.id) || self.keys.contains(&duplicate_key(album))
+        self.ids.contains(&album.id)
+            || self
+                .keys
+                .contains(&duplicate_key(&album.title, &album.artist, &album.format))
     }
 
     fn track(&mut self, album: &Album) {
         if !album.id.is_empty() {
             self.ids.insert(album.id.clone());
         }
-        self.keys.insert(duplicate_key(album));
+        self.keys
+            .insert(duplicate_key(&album.title, &album.artist, &album.format));
     }
 }
 
@@ -508,12 +526,9 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("collection.csv");
         std::fs::write(&path, b"existing file").unwrap();
-        let library = database::AlbumLibrary {
-            owned: vec![],
-            wishlist: vec![],
-        };
+        let db = database::initialize_database(directory.path(), None).unwrap();
         assert!(
-            export(&path, library, false)
+            export(&path, &db, false)
                 .unwrap_err()
                 .contains("already exists")
         );
@@ -532,11 +547,8 @@ mod tests {
         std::fs::write(&original, b"original").unwrap();
         std::os::unix::fs::symlink(&original, &link).unwrap();
         assert!(read(&link).is_err());
-        let library = database::AlbumLibrary {
-            owned: vec![],
-            wishlist: vec![],
-        };
-        assert!(export(&link, library, false).is_err());
+        let db = database::initialize_database(directory.path(), None).unwrap();
+        assert!(export(&link, &db, false).is_err());
         assert_eq!(std::fs::read(&original).unwrap(), b"original");
         assert!(link.symlink_metadata().unwrap().is_symlink());
     }
@@ -546,10 +558,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let mut db = database::initialize_database(directory.path(), None).unwrap();
         let path = directory.path().join("Empty collection – 日本語.CSV");
-        assert_eq!(
-            export(&path, database::get_album_library(&mut db).unwrap(), true).unwrap(),
-            0
-        );
+        assert_eq!(export(&path, &db, true).unwrap(), 0);
         let preview = prepare(&db, &read(&path).unwrap()).unwrap();
         assert!(preview.preview().is_empty());
         assert!(import(&mut db, &preview, &[]).unwrap().is_empty());
@@ -568,30 +577,17 @@ mod tests {
         let saved = import(&mut db, &preview, &[]).unwrap();
 
         let file = source.path().join("collection.csv");
-        assert_eq!(
-            export(&file, database::get_album_library(&mut db).unwrap(), false).unwrap(),
-            1
-        );
+        assert_eq!(export(&file, &db, false).unwrap(), 1);
         assert!(!read(&file).unwrap().contains("＋Song"));
         let file = source.path().join("collection-with-wishlist.csv");
-        assert_eq!(
-            export(&file, database::get_album_library(&mut db).unwrap(), true).unwrap(),
-            2
-        );
+        assert_eq!(export(&file, &db, true).unwrap(), 2);
         let text = read(&file).unwrap();
         assert!(text.contains("\"'@copy\""));
         assert!(text.contains("\"'=1+1, \"\"Édition\"\"\""));
         assert!(text.contains("\"''Björk\""));
         assert!(text.contains("\"'\t=2+2\nLine, \"\"two\"\"\""));
         assert!(text.contains("\"'＋Song\""));
-        assert!(
-            export(
-                &source.path().join(database::DATABASE_NAME),
-                database::get_album_library(&mut db).unwrap(),
-                true
-            )
-            .is_err()
-        );
+        assert!(export(&source.path().join(database::DATABASE_NAME), &db, true).is_err());
 
         let destination = tempfile::tempdir().unwrap();
         let mut db = database::initialize_database(destination.path(), None).unwrap();
@@ -602,8 +598,8 @@ mod tests {
             serde_json::to_value(restored).unwrap()
         );
         drop(db);
-        let mut db = database::initialize_database(destination.path(), None).unwrap();
-        let library = database::get_album_library(&mut db).unwrap();
+        let db = database::initialize_database(destination.path(), None).unwrap();
+        let library = database::get_album_library(&db).unwrap();
         assert_eq!(
             library.owned[0].date_acquired.as_deref(),
             Some("2024-02-29")

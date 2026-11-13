@@ -1,15 +1,13 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
-import App from "./App";
+import App, { type StartupData } from "./App";
 import { applyBackupSettings, type BackupSettings } from "./settings";
-
-type PendingBackupSettings = { restoreId: string; settings: BackupSettings; previousLocation: string };
 
 async function start() {
   let restoreNotice: { message: string; type: "success" | "error" } | undefined;
   try {
-    const pending = await invoke<PendingBackupSettings | null>("pending_backup_settings");
+    const pending = await invoke<{ restoreId: string; settings: BackupSettings; previousLocation: string } | null>("pending_backup_settings");
     if (pending) {
       try {
         applyBackupSettings(pending.restoreId, pending.settings);
@@ -25,8 +23,10 @@ async function start() {
   } catch (error) {
     console.error("Could not check for restored preferences:", error);
   }
+  const startup = invoke<StartupData>("get_startup_data")
+    .then(data => ({ Ok: data }), error => ({ Err: String(error) }));
   ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
-    <React.StrictMode><App restoreNotice={restoreNotice} /></React.StrictMode>
+    <React.StrictMode><App startup={startup} restoreNotice={restoreNotice} /></React.StrictMode>
   );
 }
 

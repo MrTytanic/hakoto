@@ -17,7 +17,24 @@ import Crates from "./pages/Crates";
 import Statistics from "./pages/Statistics";
 import Settings from "./pages/Settings";
 
-function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "type"> } = {}) {
+type BackendResult<T> = { Ok: T; Err?: never } | { Ok?: never; Err: string };
+type AlbumLibrary = { owned: Album[]; wishlist: Album[] };
+type PendingDeletion = { token: string; title: string };
+export type StartupData = {
+  library?: BackendResult<AlbumLibrary>;
+  profile: BackendResult<Profile>;
+  deleted: BackendResult<PendingDeletion[]>;
+};
+
+function unwrap<T>(result: BackendResult<T>): T {
+  if (result.Err !== undefined) throw new Error(result.Err);
+  return result.Ok;
+}
+
+function App({ startup, restoreNotice }: {
+  startup: Promise<BackendResult<StartupData>>;
+  restoreNotice?: Pick<ToastData, "message" | "type">;
+}) {
   const [activePage, setActivePage] = useState("Collection");
   const [theme, setTheme] = useState(themePreference.read);
   const [textScale, setTextScale] = useState(textScalePreference.read);
@@ -178,9 +195,18 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
 
     async function loadAlbums() {
       try {
-        const { owned, wishlist } = await invoke<{ owned: Album[]; wishlist: Album[] }>("get_album_library");
+        let library: AlbumLibrary;
+        if (albumLoadAttempt === 0) {
+          const data = unwrap(await startup);
+          if (cancelled || !data.library) return;
+          const initialLibrary = data.library;
+          delete data.library;
+          library = unwrap(initialLibrary);
+        } else {
+          library = await invoke<AlbumLibrary>("get_album_library");
+        }
         if (!cancelled) {
-          setAlbums([...owned, ...wishlist]);
+          setAlbums(library.owned.concat(library.wishlist));
           setAlbumLoadStatus("ready");
         }
       } catch (error) {
@@ -197,13 +223,16 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     return () => {
       cancelled = true;
     };
-  }, [albumLoadAttempt]);
+  }, [albumLoadAttempt, startup]);
 
   // Offer recoveries only after the library is ready so a late load cannot replace an undo.
   useEffect(() => {
     if (albumLoadStatus !== "ready") return;
     let cancelled = false;
-    invoke<{ token: string; title: string }[]>("get_deleted_albums").then(
+    const pending = albumLoadAttempt === 0
+      ? startup.then(result => unwrap(unwrap(result).deleted))
+      : invoke<PendingDeletion[]>("get_deleted_albums");
+    pending.then(
       deleted => {
         if (!cancelled) deleted.forEach(item => offerDeletedUndo(item.token, item.title));
       },
@@ -212,7 +241,7 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
       }
     );
     return () => { cancelled = true; };
-  }, [albumLoadStatus, notify, offerDeletedUndo]);
+  }, [albumLoadAttempt, albumLoadStatus, notify, offerDeletedUndo, startup]);
 
   const retryAlbums = useCallback(() => {
     setAlbumLoadStatus("loading");
@@ -225,7 +254,9 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     let cancelled = false;
     async function loadProfile() {
       try {
-        const saved = await invoke<Profile>("get_profile");
+        const saved = profileLoadAttempt === 0
+          ? unwrap(unwrap(await startup).profile)
+          : await invoke<Profile>("get_profile");
         if (!cancelled) {
           profileNameWrites.current = Promise.resolve(saved.displayName);
           setProfile(saved);
@@ -240,7 +271,7 @@ function App({ restoreNotice }: { restoreNotice?: Pick<ToastData, "message" | "t
     return () => {
       cancelled = true;
     };
-  }, [profileLoadAttempt]);
+  }, [profileLoadAttempt, startup]);
 
   function retryProfile() {
     setProfileLoadStatus("loading");
