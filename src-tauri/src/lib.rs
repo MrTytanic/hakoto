@@ -44,6 +44,31 @@ struct CsvPreview {
     rows: Vec<collection_csv::PreviewRow>,
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct StartupData {
+    library: Result<database::AlbumLibrary, String>,
+    profile: Result<profile::Profile, String>,
+    deleted: Result<Vec<undo::PendingDeletion>, String>,
+}
+
+#[tauri::command]
+async fn get_startup_data(app: AppHandle) -> Result<StartupData, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let state = app.state::<DatabaseState>();
+        state.with_storage(|storage| {
+            let connection = &storage.connection;
+            Ok(StartupData {
+                library: database::get_album_library(connection).map_err(database::database_error),
+                profile: profile::get(connection).map_err(database::database_error),
+                deleted: undo::pending(connection),
+            })
+        })
+    })
+    .await
+    .map_err(|error| error.to_string())?
+}
+
 impl DatabaseState {
     fn with_storage<T>(
         &self,
@@ -71,7 +96,7 @@ fn save_album(
 #[tauri::command]
 fn get_album_library(state: State<'_, DatabaseState>) -> Result<database::AlbumLibrary, String> {
     state.with_storage(|storage| {
-        database::get_album_library(&mut storage.connection).map_err(database::database_error)
+        database::get_album_library(&storage.connection).map_err(database::database_error)
     })
 }
 
@@ -310,10 +335,9 @@ async fn export_collection_csv(
             return Ok(None);
         };
         let path = path.into_path().map_err(|_| "Choose a local CSV file.")?;
-        let library = app.state::<DatabaseState>().with_storage(|storage| {
-            database::get_album_library(&mut storage.connection).map_err(database::database_error)
-        })?;
-        collection_csv::export(&path, library, include_wishlist).map(Some)
+        app.state::<DatabaseState>().with_storage(|storage| {
+            collection_csv::export(&path, &storage.connection, include_wishlist).map(Some)
+        })
     })
     .await
     .map_err(|error| error.to_string())?
@@ -641,6 +665,7 @@ pub fn run() {
             })
         })
         .invoke_handler(tauri::generate_handler![
+            get_startup_data,
             get_crates,
             save_crate,
             delete_crate,

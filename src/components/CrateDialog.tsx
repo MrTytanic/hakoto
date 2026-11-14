@@ -1,4 +1,4 @@
-import { useRef, useState, type FormEvent } from "react";
+import { useCallback, useRef, useState, type FormEvent } from "react";
 import type { Album } from "../types/Album";
 import type { Crate, CrateSettings } from "../types/Crate";
 import CrateAlbumPicker from "./CrateAlbumPicker";
@@ -18,6 +18,12 @@ export default function CrateDialog({ action, albums, onSave, onDelete, onClose 
   const [error, setError] = useState("");
   const crate = action.kind === "create" ? undefined : action.crate;
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set(crate?.albumIds));
+  const toggleAlbum = useCallback((id: string) => setSelected(previous => {
+    const next = new Set(previous);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  }), []);
   const deleting = action.kind === "delete";
   const title = deleting ? "Delete Crate" : crate ? "Edit Crate" : "Create Crate";
 
@@ -63,12 +69,7 @@ export default function CrateDialog({ action, albums, onSave, onDelete, onClose 
                 <label htmlFor="crate-description">Description (optional)</label>
                 <textarea id="crate-description" name="description" rows={3} defaultValue={crate?.description ?? ""} />
               </div>
-              <CrateAlbumPicker albums={albums} selected={selected} allowSelectedOnly={Boolean(crate)} onToggle={id => setSelected(previous => {
-                const next = new Set(previous);
-                if (next.has(id)) next.delete(id);
-                else next.add(id);
-                return next;
-              })} />
+              <CrateAlbumPicker albums={albums} selected={selected} allowSelectedOnly={Boolean(crate)} onToggle={toggleAlbum} />
             </fieldset>
           )}
         </div>

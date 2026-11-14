@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, hash_map::Entry},
+    collections::{HashMap, HashSet, hash_map::Entry},
     error::Error,
     fs, io,
     path::Path,
@@ -24,7 +24,7 @@ const LEGACY_YEAR: &str = "CASE WHEN length(trim(release_year)) BETWEEN 1 AND 4
     AND CAST(release_year AS INTEGER) BETWEEN 1 AND 9999
     THEN CAST(release_year AS INTEGER) ELSE NULL END";
 
-const ALBUM_COLUMNS: &str = "id, title, artist, format, release_year, artwork, favorite,
+pub(crate) const ALBUM_COLUMNS: &str = "id, title, artist, format, release_year, artwork, favorite,
     pinned, date_added, condition, record_type, disc_size, original_release_year, date_acquired,
     notes, ownership";
 
@@ -156,7 +156,9 @@ fn import_legacy_albums(
     source.pragma_update(None, "trusted_schema", false)?;
     let snapshot = source.transaction()?;
     let mut imported_artwork = HashMap::new();
-    for mut album in get_albums(&snapshot)? {
+    let mut statement = legacy_album_statement(&snapshot)?;
+    for album in statement.query_map([], read_album)? {
+        let mut album = album?;
         if let Some(name) = album.artwork.take() {
             let migrated = match imported_artwork.entry(name) {
                 Entry::Occupied(entry) => entry.into_mut(),
@@ -235,7 +237,14 @@ pub enum ArtworkChange {
     Replace(Vec<u8>),
 }
 
+#[cfg(test)]
 pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
+    legacy_album_statement(connection)?
+        .query_map([], read_album)?
+        .collect()
+}
+
+fn legacy_album_statement(connection: &Connection) -> rusqlite::Result<rusqlite::Statement<'_>> {
     let extended = has_album_column(connection, "original_release_year")?;
     let year = if extended {
         "release_year"
@@ -257,14 +266,10 @@ pub fn get_albums(connection: &Connection) -> rusqlite::Result<Vec<Album>> {
     } else {
         "'owned'"
     };
-    let mut statement = connection.prepare(&format!(
+    connection.prepare(&format!(
         "SELECT id, title, artist, format, {year}, artwork, favorite, {metadata}, {extra}, {ownership}
          FROM albums ORDER BY rowid ASC"
-    ))?;
-
-    let albums = statement.query_map([], read_album)?;
-
-    albums.collect()
+    ))
 }
 
 #[derive(serde::Serialize)]
@@ -273,26 +278,25 @@ pub struct AlbumLibrary {
     pub wishlist: Vec<Album>,
 }
 
-pub fn get_album_library(connection: &mut Connection) -> rusqlite::Result<AlbumLibrary> {
-    // Read both scopes in one snapshot so an acquisition cannot appear twice or be missed.
-    let transaction = connection.transaction()?;
-    let library = {
-        let mut statement = transaction.prepare(&format!(
-            "SELECT {ALBUM_COLUMNS} FROM albums WHERE ownership = ?1 ORDER BY rowid ASC"
-        ))?;
-        let owned = statement
-            .query_map([Ownership::Owned.as_str()], read_album)?
-            .collect::<rusqlite::Result<_>>()?;
-        let wishlist = statement
-            .query_map([Ownership::Wishlist.as_str()], read_album)?
-            .collect::<rusqlite::Result<_>>()?;
-        AlbumLibrary { owned, wishlist }
+pub fn get_album_library(connection: &Connection) -> rusqlite::Result<AlbumLibrary> {
+    let mut statement = connection.prepare_cached(&format!(
+        "SELECT {ALBUM_COLUMNS} FROM albums WHERE ownership IN ('owned', 'wishlist') ORDER BY rowid"
+    ))?;
+    let mut library = AlbumLibrary {
+        owned: Vec::new(),
+        wishlist: Vec::new(),
     };
-    transaction.commit()?;
+    for album in statement.query_map([], read_album)? {
+        let album = album?;
+        match album.ownership {
+            Ownership::Owned => library.owned.push(album),
+            Ownership::Wishlist => library.wishlist.push(album),
+        }
+    }
     Ok(library)
 }
 
-fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
+pub(crate) fn read_album(row: &rusqlite::Row<'_>) -> rusqlite::Result<Album> {
     Ok(Album {
         id: row.get(0)?,
         title: row.get(1)?,
@@ -585,8 +589,15 @@ fn remove_if_unreferenced(
         )
         .map_err(|error| error.to_string())?;
 
+    if !referenced {
+        remove_artwork_file(directory, name)?;
+    }
+    Ok(())
+}
+
+fn remove_artwork_file(directory: &Path, name: &str) -> Result<(), String> {
     let path = directory.join(name);
-    if !referenced && crate::storage::checked_file(&path).is_ok() {
+    if crate::storage::checked_file(&path).is_ok() {
         match fs::remove_file(path) {
             Err(error) if error.kind() != io::ErrorKind::NotFound => return Err(error.to_string()),
             _ => {}
@@ -600,14 +611,33 @@ pub fn clean_orphaned_artwork(connection: &mut Connection, app_dir: &Path) -> Re
         .transaction_with_behavior(TransactionBehavior::Immediate)
         .map_err(|error| error.to_string())?;
     let directory = artwork::directory(app_dir).map_err(|error| error.to_string())?;
+    let references = (|| -> rusqlite::Result<_> {
+        let mut statement = transaction.prepare(
+            "SELECT artwork FROM albums WHERE artwork IS NOT NULL
+             UNION ALL SELECT artwork FROM undo_albums WHERE artwork IS NOT NULL",
+        )?;
+        let mut rows = statement.query([])?;
+        let mut references = HashSet::new();
+        while let Some(row) = rows.next()? {
+            if let ValueRef::Text(bytes) = row.get_ref(0)?
+                && let Ok(name) = std::str::from_utf8(bytes)
+                && artwork::is_filename(name)
+            {
+                references.insert(name.to_owned());
+            }
+        }
+        Ok(references)
+    })()
+    .map_err(|error| error.to_string())?;
     for entry in fs::read_dir(&directory).map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
         if let Some(name) = entry
             .file_name()
             .to_str()
             .filter(|name| artwork::is_filename(name))
+            && !references.contains(name)
             && entry.file_type().is_ok_and(|kind| kind.is_file())
-            && let Err(error) = remove_if_unreferenced(&transaction, &directory, name)
+            && let Err(error) = remove_artwork_file(&directory, name)
         {
             eprintln!("Could not clean up artwork {name}: {error}");
         }
@@ -1290,7 +1320,7 @@ mod tests {
         drop(db);
 
         let mut db = initialize_database(path, None).unwrap();
-        let library = get_album_library(&mut db).unwrap();
+        let library = get_album_library(&db).unwrap();
         assert_eq!(library.owned.len(), 1);
         assert_eq!(library.owned[0].id, "owned-copy");
         assert_eq!(library.wishlist.len(), 1);
@@ -1321,7 +1351,7 @@ mod tests {
         drop(db);
 
         let mut db = initialize_database(path, None).unwrap();
-        let library = get_album_library(&mut db).unwrap();
+        let library = get_album_library(&db).unwrap();
         assert!(library.wishlist.is_empty());
         assert_eq!(library.owned.len(), 2);
         let [copy, acquired] = &library.owned[..] else {

@@ -107,12 +107,12 @@ pub fn clean_orphaned_images(
     connection: &mut Connection,
     app_dir: &Path,
 ) -> Result<(), Box<dyn Error>> {
-    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let directory = match artwork::directory_in(app_dir, IMAGE_DIRECTORY) {
         Ok(directory) => directory,
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
         Err(error) => return Err(error.into()),
     };
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
     let current = get(&transaction)?.profile_picture;
     for entry in fs::read_dir(directory)? {
         let entry = entry?;

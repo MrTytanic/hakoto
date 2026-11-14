@@ -1,28 +1,33 @@
 import { Check, Disc3, Ellipsis, Pin } from "lucide-react";
-import { useEffect, useRef, type PointerEventHandler } from "react";
+import { memo, useEffect, useRef, useState, type PointerEvent } from "react";
 import type { Album } from "../../types/Album";
 import { artworkUrl } from "../../artwork";
 import { ArtworkImage } from "../Artwork";
 import type { CollectionViewPreference } from "../../settings";
 import "./AlbumCard.css";
 
-type AlbumCardAction = "favorite" | "pinned" | "edit" | "delete" | "acquire";
+export type AlbumCardAction = "favorite" | "pinned" | "edit" | "delete" | "acquire";
 
 type AlbumCardProps = {
   album: Album;
-  onClick: () => void;
-  onPointerDown?: PointerEventHandler<HTMLButtonElement>;
-  onAction?: (action: AlbumCardAction) => Promise<void>;
+  onClick: (id: string) => void;
+  onPointerDown?: (event: PointerEvent<HTMLButtonElement>, album: Album) => void;
+  onAction?: (album: Album, action: AlbumCardAction) => Promise<void>;
   view?: CollectionViewPreference;
   selected?: boolean;
 };
 
+const CardCover = memo(function CardCover({ filename }: { filename: string | null }) {
+  return <ArtworkImage src={artworkUrl(filename)} alt=""
+    fallback={<Disc3 size={40} strokeWidth={1.2} aria-hidden="true" />} lazy />;
+});
+
 function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", selected }: AlbumCardProps) {
   const wishlist = album.ownership === "wishlist";
-  const hasActions = Boolean(onAction);
   const menu = useRef<HTMLDetailsElement>(null);
   const trigger = useRef<HTMLElement>(null);
   const busy = useRef(false);
+  const [menuOpen, setMenuOpen] = useState(false);
 
   function closeMenu(restoreFocus = true) {
     if (menu.current) menu.current.open = false;
@@ -31,7 +36,7 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
   }
 
   useEffect(() => {
-    if (!hasActions) return;
+    if (!menuOpen) return;
     const outside = (event: Event) => {
       if (menu.current?.open && event.target instanceof Node && !menu.current.contains(event.target)) closeMenu(false);
     };
@@ -50,14 +55,14 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
       document.removeEventListener("keydown", escape, true);
       window.removeEventListener("scroll", outside, true);
     };
-  }, [hasActions]);
+  }, [menuOpen]);
 
   async function runAction(action: AlbumCardAction, keyboard: boolean) {
     closeMenu(keyboard || action === "edit" || action === "delete" || action === "acquire");
     if (busy.current) return;
     busy.current = true;
     try {
-      await onAction?.(action);
+      await onAction?.(album, action);
     } catch (error) {
       console.error("Album action failed:", error);
     } finally {
@@ -67,17 +72,13 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
 
   return (
     <div className="album-card-frame" data-view={view}>
-      <button className="album-card" onClick={() => { closeMenu(false); onClick(); }} type="button" onPointerDown={onPointerDown}
+      <button className="album-card" onClick={() => { closeMenu(false); onClick(album.id); }} type="button"
+        onPointerDown={onPointerDown ? event => onPointerDown(event, album) : undefined}
         aria-pressed={selected}
         aria-label={selected === undefined ? undefined : [album.title, album.artist, album.format, album.releaseYear, album.condition, album.dateAcquired].filter(Boolean).join(", ")}
         onDragStart={onPointerDown ? event => event.preventDefault() : undefined}>
         <div className="album-artwork">
-          <ArtworkImage
-            src={artworkUrl(album.artwork)}
-            alt=""
-            fallback={<Disc3 size={40} strokeWidth={1.2} aria-hidden="true" />}
-            lazy
-          />
+          <CardCover filename={album.artwork} />
 
           {!wishlist && album.pinned && (
             <Pin className="album-pin-indicator" size={17} fill="currentColor" aria-label="Pinned" />
@@ -90,7 +91,8 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
         {selected !== undefined && <span className="album-selection-marker" aria-hidden="true">{selected && <Check size={15} />}</span>}
       </button>
       {onAction && (
-        <details ref={menu} name="album-actions" className="album-card-actions" onBlur={event => {
+        <details ref={menu} name="album-actions" className="album-card-actions"
+          onToggle={event => setMenuOpen(event.currentTarget.open)} onBlur={event => {
           if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false;
         }}>
           <summary ref={trigger} aria-label={`Actions for ${album.title}`}><Ellipsis size={18} aria-hidden="true" /></summary>
@@ -112,4 +114,4 @@ function AlbumCard({ album, onClick, onPointerDown, onAction, view = "grid", sel
   );
 }
 
-export default AlbumCard;
+export default memo(AlbumCard);

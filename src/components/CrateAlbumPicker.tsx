@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import type { Album } from "../types/Album";
 import { albumReleaseYear, getVisibleAlbums, type CollectionSort } from "../collectionView";
 import { collectionViewPreference } from "../settings";
@@ -37,13 +37,18 @@ export default function CrateAlbumPicker({ albums, selected, onToggle, allowSele
 
   const matches = useMemo(() => {
     const releaseYear = Number(year);
-    const scoped = albums.filter(album => (!selectedFilter || selectedFilter.has(album.id)) &&
+    const scoped = !selectedFilter && !artist && !year ? albums : albums.filter(album => (!selectedFilter || selectedFilter.has(album.id)) &&
       (!artist || album.artist === artist) && (!year || (
       year === "unknown" ? albumReleaseYear(album) == null
         : album.releaseYear === releaseYear || album.originalReleaseYear === releaseYear
     )));
     return getVisibleAlbums(scoped, { query, formats, sort, prioritizePinned: false });
   }, [albums, artist, year, query, formats, sort, selectedFilter]);
+
+  const toggleAlbum = useCallback((id: string) => {
+    if (selectedOnly) selectedControl.current?.focus();
+    onToggle(id);
+  }, [selectedOnly, onToggle]);
 
   function resetFilters() {
     setArtist("");
@@ -115,10 +120,7 @@ export default function CrateAlbumPicker({ albums, selected, onToggle, allowSele
       </p>
       <div ref={results} className={view === "list" ? "album-list" : "album-grid"}>
         {matches.slice(0, limit).map(album => <AlbumCard key={album.id} album={album} view={view}
-          selected={selected.has(album.id)} onClick={() => {
-            if (selectedOnly) selectedControl.current?.focus();
-            onToggle(album.id);
-          }} />)}
+          selected={selected.has(album.id)} onClick={toggleAlbum} />)}
       </div>
       {limit < matches.length && <button type="button" className="album-cancel crate-picker-more" onClick={loadMore}>Load More</button>}
     </section>

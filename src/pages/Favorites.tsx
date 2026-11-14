@@ -1,5 +1,5 @@
 
-import { useMemo, useRef, useState } from "react";
+import { memo, useCallback, useMemo, useRef, useState } from "react";
 import { Heart } from "lucide-react";
 import ProfileHeader from "../components/ProfileHeader";
 import type { Profile } from "../types/Profile";
@@ -9,7 +9,7 @@ import { getVisibleAlbums, paginateAlbums } from "../collectionView";
 import { collectionPageSizePreference } from "../settings";
 import AlbumSearch from "../components/AlbumSearch";
 import AlbumPagination from "../components/AlbumPagination";
-import AlbumCard from "../components/albumcard/AlbumCard";
+import AlbumCard, { type AlbumCardAction } from "../components/albumcard/AlbumCard";
 import AlbumDetails from "../components/albumdetails/AlbumDetails";
 import "./Collection.css";
 
@@ -33,7 +33,17 @@ function Favorites({ profile, albums, onUpdate, onDelete, onBrowseCollection }: 
   const [page, setPage] = useState(0);
   const pagination = useMemo(() => paginateAlbums(favorites, page, Number(pageSize)), [favorites, page, pageSize]);
   if (page !== pagination.pageIndex) setPage(pagination.pageIndex);
-  const selectedAlbum = favoriteAlbums.find(album => album.id === selectedId);
+  const selectedAlbum = selectedId === null ? undefined : favoriteAlbums.find(album => album.id === selectedId);
+
+  const openAlbum = useCallback((id: string, action?: "edit" | "delete") => {
+    setInitialAction(action);
+    setSelectedId(id);
+  }, []);
+
+  const handleAlbumAction = useCallback(async (album: Album, action: AlbumCardAction) => {
+    if (action === "edit" || action === "delete") openAlbum(album.id, action);
+    else if (action === "favorite" || action === "pinned") await onUpdate({ ...album, [action]: !album[action] });
+  }, [onUpdate, openAlbum]);
 
   function changeQuery(value: string) {
     setQuery(value);
@@ -71,13 +81,8 @@ function Favorites({ profile, albums, onUpdate, onDelete, onBrowseCollection }: 
               <AlbumCard
                 key={album.id}
                 album={album}
-                onClick={() => { setInitialAction(undefined); setSelectedId(album.id); }}
-                onAction={async action => {
-                  if (action === "edit" || action === "delete") {
-                    setInitialAction(action);
-                    setSelectedId(album.id);
-                  } else if (action === "favorite" || action === "pinned") await onUpdate({ ...album, [action]: !album[action] });
-                }}
+                onClick={openAlbum}
+                onAction={handleAlbumAction}
               />
             ))}
           </div>
@@ -106,4 +111,4 @@ function Favorites({ profile, albums, onUpdate, onDelete, onBrowseCollection }: 
   );
 }
 
-export default Favorites;
+export default memo(Favorites);

@@ -172,7 +172,7 @@ pub fn read_checked_in(app_dir: &Path, folder: &str, name: &str) -> io::Result<V
         ));
     }
 
-    let mut bytes = Vec::new();
+    let mut bytes = Vec::with_capacity(metadata.len() as usize);
     File::open(path)?
         .take(MAX_BYTES as u64 + 1)
         .read_to_end(&mut bytes)?;

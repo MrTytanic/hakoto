@@ -8,6 +8,7 @@ let vite;
 let Shelves;
 let ShelfGrid;
 let ShelfDialog;
+let requestSpinePalette;
 
 before(async () => {
   vite = await createServer({
@@ -17,10 +18,38 @@ before(async () => {
   ({ default: Shelves } = await vite.ssrLoadModule("/src/pages/Shelves.tsx"));
   ({ default: ShelfGrid } = await vite.ssrLoadModule("/src/components/ShelfGrid.tsx"));
   ({ default: ShelfDialog } = await vite.ssrLoadModule("/src/components/ShelfDialog.tsx"));
+  ({ requestSpinePalette } = await vite.ssrLoadModule("/src/spineArtwork.ts"));
 });
 
 after(async () => {
   await vite?.close();
+});
+
+test("unmounted spines cancel queued artwork reads and share an in-flight read", async () => {
+  const previousWindow = globalThis.window;
+  const requests = [];
+  globalThis.window = { __TAURI_INTERNALS__: { invoke: (command, { filename }) => {
+    assert.equal(command, "read_artwork_bytes");
+    return new Promise((_, reject) => requests.push({ filename, reject }));
+  } } };
+  try {
+    const names = Array.from({ length: 5 }, (_, i) => `${i.toString(16).padStart(32, "0")}.webp`);
+    const delivered = [];
+    const listeners = names.slice(0, 4).map(filename => new Promise(resolve => {
+      requestSpinePalette(filename, palette => { delivered.push(palette); resolve(); });
+    }));
+    const shared = new Promise(resolve => requestSpinePalette(names[0], resolve));
+    const cancel = requestSpinePalette(names[4], () => assert.fail("cancelled listener ran"));
+    cancel();
+    assert.deepEqual(requests.map(item => item.filename), names.slice(0, 4));
+    for (const { reject } of requests) reject(new Error("Fixture artwork is unavailable"));
+    await Promise.all([...listeners, shared]);
+    assert.equal(requests.length, 4);
+    assert.deepEqual(delivered, [null, null, null, null]);
+  } finally {
+    if (previousWindow === undefined) delete globalThis.window;
+    else globalThis.window = previousWindow;
+  }
 });
 
 const album = {
