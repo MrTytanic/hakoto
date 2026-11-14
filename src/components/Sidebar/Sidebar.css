@@ -11,6 +11,13 @@
   transition: width var(--animation-long) ease;
 }
 
+.sidebar-brand-icon {
+  width: 23px;
+  height: 23px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .sidebar.expanded { width: calc(220px * var(--text-scale)); }
 .sidebar.collapsed { width: 64px; }
 

@@ -1,10 +1,11 @@
 import { useState } from "react";
 import {
-  Disc3, Library, Layers3, Heart, Bookmark,
+  Library, Layers3, Heart, Bookmark,
   Archive, ChartNoAxesColumn, Settings,
   PanelLeftClose, PanelLeftOpen
 } from "lucide-react";
 import "./Sidebar.css";
+import hakotoLogo from "../../assets/hakoto.svg";
 
 const navigation = [
   { label: "Collection", icon: Library },
@@ -35,7 +36,11 @@ function Sidebar({ activePage, setActivePage }: SidebarProps) {
       <div className="sidebar-header">
         {isExpanded && (
           <div className="sidebar-brand">
-            <Disc3 size={23} strokeWidth={1.8} />
+            <img
+              src={hakotoLogo}
+              alt=""
+              className="sidebar-brand-icon"
+            />
             <span className="sidebar-logo">hakoto</span>
           </div>
         )}
