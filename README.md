@@ -73,7 +73,20 @@ Manage profile information and application preferences.
 
 ## Installation
 
-Hakoto supports **Windows** and **Linux**. Precompiled builds, when available, can be downloaded from [GitHub Releases](https://github.com/MrTytanic/hakoto/releases).
+Hakoto supports **Windows** and **Linux**. Precompiled installers are available from [GitHub Releases](https://github.com/MrTytanic/hakoto/releases).
+
+### Windows
+
+- **`.exe`**: Recommended Windows installer.
+- **`.msi`**: Alternative Windows installer.
+
+### Linux
+
+- **`.deb`**: Debian-based distributions, including Ubuntu and Linux Mint.
+- **`.rpm`**: RPM-based distributions, including Fedora.
+- **`.AppImage`**: Portable executable compatible with many Linux distributions.
+
+All precompiled builds currently target **x86-64** systems.
 
 Alternatively, Hakoto can be built from source using the instructions below.
 
